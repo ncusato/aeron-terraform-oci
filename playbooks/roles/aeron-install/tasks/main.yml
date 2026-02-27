@@ -1,0 +1,199 @@
+---
+- name: Create Aeron directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ aeron_dir }}"
+    - "{{ aeron_dir }}/bin"
+    - "{{ aeron_dir }}/lib"
+    - "{{ aeron_dir }}/logs"
+    - "{{ aeron_dir }}/results"
+    - "/dev/shm/aeron"
+
+- name: Install Eclipse Temurin JDK
+  block:
+    - name: Add Adoptium repository
+      yum_repository:
+        name: adoptium
+        description: Adoptium
+        baseurl: https://packages.adoptium.net/artifactory/rpm/rhel/$releasever/$basearch
+        gpgkey: https://packages.adoptium.net/artifactory/api/gpg/key/public
+        gpgcheck: yes
+        enabled: yes
+      when: ansible_os_family == 'RedHat'
+
+    - name: Install Temurin JDK
+      package:
+        name: "temurin-{{ java_version }}-jdk"
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+- name: Set JAVA_HOME
+  lineinfile:
+    path: /etc/environment
+    line: "JAVA_HOME=/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+    create: yes
+
+- name: Download Aeron
+  get_url:
+    url: "https://repo1.maven.org/maven2/io/aeron/aeron-all/{{ aeron_version }}/aeron-all-{{ aeron_version }}.jar"
+    dest: "{{ aeron_dir }}/lib/aeron-all-{{ aeron_version }}.jar"
+    mode: '0644'
+
+- name: Download Aeron samples
+  get_url:
+    url: "https://repo1.maven.org/maven2/io/aeron/aeron-samples/{{ aeron_version }}/aeron-samples-{{ aeron_version }}.jar"
+    dest: "{{ aeron_dir }}/lib/aeron-samples-{{ aeron_version }}.jar"
+    mode: '0644'
+
+- name: Download Agrona
+  get_url:
+    url: "https://repo1.maven.org/maven2/org/agrona/agrona/1.21.2/agrona-1.21.2.jar"
+    dest: "{{ aeron_dir }}/lib/agrona-1.21.2.jar"
+    mode: '0644'
+
+- name: Download HdrHistogram
+  get_url:
+    url: "https://repo1.maven.org/maven2/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.jar"
+    dest: "{{ aeron_dir }}/lib/HdrHistogram-2.2.2.jar"
+    mode: '0644'
+
+- name: Create media driver script
+  copy:
+    dest: "{{ aeron_dir }}/bin/media-driver.sh"
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      AERON_DIR="{{ aeron_dir }}"
+      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      
+      export JAVA_OPTS="{{ aeron_java_opts }}"
+      
+      $JAVA_HOME/bin/java $JAVA_OPTS \
+        -cp "$AERON_DIR/lib/*" \
+        io.aeron.driver.MediaDriver \
+        "$@"
+
+- name: Create benchmark ping script
+  copy:
+    dest: "{{ aeron_dir }}/bin/ping.sh"
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      AERON_DIR="{{ aeron_dir }}"
+      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      
+      MESSAGE_SIZE=${1:-32}
+      MESSAGES=${2:-1000000}
+      
+      export JAVA_OPTS="{{ aeron_java_opts }}"
+      
+      $JAVA_HOME/bin/java $JAVA_OPTS \
+        -cp "$AERON_DIR/lib/*" \
+        io.aeron.samples.Ping \
+        -c aeron:udp?endpoint=localhost:20121 \
+        -m $MESSAGE_SIZE \
+        -n $MESSAGES \
+        "$@"
+
+- name: Create benchmark pong script
+  copy:
+    dest: "{{ aeron_dir }}/bin/pong.sh"
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      AERON_DIR="{{ aeron_dir }}"
+      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      
+      export JAVA_OPTS="{{ aeron_java_opts }}"
+      
+      $JAVA_HOME/bin/java $JAVA_OPTS \
+        -cp "$AERON_DIR/lib/*" \
+        io.aeron.samples.Pong \
+        -c aeron:udp?endpoint=localhost:20121 \
+        "$@"
+
+- name: Create throughput benchmark script
+  copy:
+    dest: "{{ aeron_dir }}/bin/throughput.sh"
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      AERON_DIR="{{ aeron_dir }}"
+      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      
+      MESSAGE_SIZE=${1:-32}
+      MESSAGES=${2:-100000000}
+      
+      export JAVA_OPTS="{{ aeron_java_opts }}"
+      
+      $JAVA_HOME/bin/java $JAVA_OPTS \
+        -cp "$AERON_DIR/lib/*" \
+        io.aeron.samples.StreamingPublisher \
+        -c aeron:udp?endpoint=localhost:20121 \
+        -m $MESSAGE_SIZE \
+        -n $MESSAGES \
+        "$@"
+
+- name: Configure sysctl for Aeron
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: /etc/sysctl.d/99-aeron.conf
+    reload: yes
+  loop:
+    - { name: 'net.core.rmem_max', value: '8388608' }
+    - { name: 'net.core.wmem_max', value: '8388608' }
+    - { name: 'net.core.rmem_default', value: '1048576' }
+    - { name: 'net.core.wmem_default', value: '1048576' }
+    - { name: 'net.core.netdev_max_backlog', value: '30000' }
+    - { name: 'vm.swappiness', value: '10' }
+
+- name: Set ulimits for Aeron
+  pam_limits:
+    domain: '*'
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+  loop:
+    - { type: 'soft', item: 'nofile', value: '1048576' }
+    - { type: 'hard', item: 'nofile', value: '1048576' }
+    - { type: 'soft', item: 'memlock', value: 'unlimited' }
+    - { type: 'hard', item: 'memlock', value: 'unlimited' }
+
+- name: Create CPU isolation script
+  copy:
+    dest: "{{ aeron_dir }}/bin/isolate-cpus.sh"
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      # Isolate CPUs for Aeron benchmarking
+      # Usage: ./isolate-cpus.sh <cpu_list>
+      # Example: ./isolate-cpus.sh 2,3,4,5
+      
+      CPU_LIST=${1:-"2,3"}
+      
+      # Move interrupts to CPU 0
+      for irq in /proc/irq/*/smp_affinity_list; do
+        echo 0 > $irq 2>/dev/null || true
+      done
+      
+      echo "CPUs $CPU_LIST isolated for Aeron"
+      echo "Run benchmark with: taskset -c $CPU_LIST <command>"
+
+- name: Display installation summary
+  debug:
+    msg: |
+      Aeron {{ aeron_version }} installed successfully!
+      
+      Location: {{ aeron_dir }}
+      Java: Temurin {{ java_version }}
+      
+      Scripts:
+        - {{ aeron_dir }}/bin/media-driver.sh  (Start media driver)
+        - {{ aeron_dir }}/bin/ping.sh          (Latency benchmark)
+        - {{ aeron_dir }}/bin/pong.sh          (Latency responder)
+        - {{ aeron_dir }}/bin/throughput.sh    (Throughput benchmark)

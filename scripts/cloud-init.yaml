@@ -1,0 +1,99 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - epel-release
+  - ansible
+  - git
+  - wget
+  - curl
+  - unzip
+  - htop
+  - iotop
+  - sysstat
+  - numactl
+  - perf
+  - gcc
+  - gcc-c++
+  - make
+  - cmake
+  - java-${java_version}-openjdk-devel
+
+write_files:
+  - path: /etc/sysctl.d/99-aeron.conf
+    content: |
+      # Aeron optimizations
+      net.core.rmem_max=8388608
+      net.core.wmem_max=8388608
+      net.core.rmem_default=1048576
+      net.core.wmem_default=1048576
+      net.ipv4.udp_mem=8388608 8388608 8388608
+      net.core.netdev_max_backlog=30000
+      net.core.optmem_max=67108864
+      
+      # Disable TCP timestamps and other optimizations
+      net.ipv4.tcp_timestamps=0
+      net.ipv4.tcp_sack=1
+      net.ipv4.tcp_low_latency=1
+      
+      # Memory settings
+      vm.swappiness=10
+      vm.dirty_ratio=10
+      vm.dirty_background_ratio=5
+    permissions: '0644'
+
+  - path: /etc/security/limits.d/99-aeron.conf
+    content: |
+      * soft nofile 1048576
+      * hard nofile 1048576
+      * soft memlock unlimited
+      * hard memlock unlimited
+      * soft nproc 65535
+      * hard nproc 65535
+    permissions: '0644'
+
+%{ if !hyperthreading }
+  - path: /opt/aeron/sbin/disable-hyperthreading.sh
+    content: |
+      #!/bin/bash
+      for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
+        cpu_id=$(basename $cpu | sed 's/cpu//')
+        if [ -f "$cpu/topology/thread_siblings_list" ]; then
+          first_sibling=$(cut -d',' -f1 "$cpu/topology/thread_siblings_list" | cut -d'-' -f1)
+          if [ "$cpu_id" != "$first_sibling" ]; then
+            echo 0 > "$cpu/online" 2>/dev/null || true
+          fi
+        fi
+      done
+      echo "Hyperthreading disabled"
+    permissions: '0755'
+
+  - path: /etc/systemd/system/disable-hyperthreading.service
+    content: |
+      [Unit]
+      Description=Disable Hyperthreading
+      After=multi-user.target
+      
+      [Service]
+      Type=oneshot
+      ExecStart=/opt/aeron/sbin/disable-hyperthreading.sh
+      RemainAfterExit=yes
+      
+      [Install]
+      WantedBy=multi-user.target
+    permissions: '0644'
+%{ endif }
+
+runcmd:
+  - sysctl --system
+  - mkdir -p /opt/aeron/sbin
+%{ if !hyperthreading }
+  - systemctl daemon-reload
+  - systemctl enable disable-hyperthreading.service
+  - systemctl start disable-hyperthreading.service
+%{ endif }
+  - echo "Cloud-init complete for Aeron deployment"
+
+final_message: "Aeron node ready after $UPTIME seconds"

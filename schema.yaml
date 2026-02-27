@@ -1,0 +1,437 @@
+---
+title: "Aeron Deployment for OCI"
+description: "Deploy Aeron messaging system with optional failover node for high-performance benchmarking on Oracle Cloud Infrastructure"
+schemaVersion: 1.1.0
+version: "1.0.0"
+locale: "en"
+
+logoUrl: https://raw.githubusercontent.com/real-logic/aeron/master/aeron-logo.png
+
+outputs:
+  primary_public_ip:
+    title: "Primary Node Public IP"
+    type: copyableString
+    visible: true
+
+  primary_ssh_command:
+    title: "SSH Command (Primary)"
+    type: copyableString
+    visible: true
+
+  failover_public_ip:
+    title: "Failover Node Public IP"
+    type: copyableString
+    visible: true
+
+  benchmark_command:
+    title: "Benchmark Command"
+    type: copyableString
+    visible: true
+
+variableGroups:
+  - title: "Basic Configuration"
+    variables:
+      - compartment_ocid
+      - ssh_public_key
+      - use_custom_name
+      - cluster_name
+
+  - title: "Primary Node Configuration"
+    variables:
+      - primary_ad
+      - primary_shape
+      - primary_ocpus
+      - primary_memory_gb
+      - primary_boot_volume_size_gb
+
+  - title: "Failover Node Configuration"
+    variables:
+      - enable_failover_node
+      - failover_ad
+      - failover_shape
+      - failover_ocpus
+      - failover_memory_gb
+      - failover_boot_volume_size_gb
+
+  - title: "Performance Settings"
+    variables:
+      - hyperthreading
+
+  - title: "Network Configuration"
+    variables:
+      - use_existing_vcn
+      - vcn_compartment_ocid
+      - existing_vcn_id
+      - existing_subnet_id
+      - vcn_cidr_block
+      - public_subnet_cidr
+      - private_subnet_cidr
+      - private_deployment
+
+  - title: "Image Configuration"
+    variables:
+      - use_marketplace_image
+      - marketplace_image_version
+      - image_ocid
+
+  - title: "Aeron Configuration"
+    variables:
+      - install_aeron
+      - aeron_version
+      - java_version
+      - run_benchmarks
+
+  - title: "Hidden Variables"
+    variables:
+      - tenancy_ocid
+      - region
+      - ssh_username
+      - use_instance_principal
+    visible: false
+
+variables:
+  tenancy_ocid:
+    type: string
+    title: "Tenancy OCID"
+    required: true
+
+  region:
+    type: oci:identity:region:name
+    title: "Region"
+    required: true
+
+  compartment_ocid:
+    type: oci:identity:compartment:id
+    title: "Compartment"
+    description: "Compartment where resources will be created"
+    required: true
+    dependsOn:
+      compartmentId: ${tenancy_ocid}
+
+  ssh_public_key:
+    type: oci:core:ssh:publickey
+    title: "SSH Public Key"
+    description: "Public SSH key for instance access"
+    required: true
+
+  use_custom_name:
+    type: boolean
+    title: "Use Custom Cluster Name"
+    description: "Use a custom name instead of auto-generated"
+    default: false
+
+  cluster_name:
+    type: string
+    title: "Cluster Name"
+    description: "Name prefix for all resources"
+    default: "aeron"
+    visible:
+      eq:
+        - ${use_custom_name}
+        - true
+    required: true
+
+  # Primary Node Configuration
+  primary_ad:
+    type: oci:identity:availabilitydomain:name
+    title: "Primary Node Availability Domain"
+    description: "AD for the primary Aeron node"
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  primary_shape:
+    type: oci:core:instanceshape:name
+    title: "Primary Node Shape"
+    description: "Compute shape for the primary node"
+    default: "VM.Standard.E5.Flex"
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  primary_ocpus:
+    type: integer
+    title: "Primary Node OCPUs"
+    description: "Number of OCPUs (minimum 10 for Aeron benchmarking)"
+    minimum: 10
+    maximum: 128
+    default: 10
+    required: true
+    visible:
+      or:
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.E3.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.E4.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.E5.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard3.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Optimized3.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.A1.Flex"
+
+  primary_memory_gb:
+    type: integer
+    title: "Primary Node Memory (GB)"
+    description: "Memory in GB"
+    minimum: 16
+    maximum: 1024
+    default: 64
+    required: true
+    visible:
+      or:
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.E3.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.E4.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.E5.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard3.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Optimized3.Flex"
+        - eq:
+            - ${primary_shape}
+            - "VM.Standard.A1.Flex"
+
+  primary_boot_volume_size_gb:
+    type: integer
+    title: "Primary Boot Volume Size (GB)"
+    minimum: 50
+    maximum: 32768
+    default: 200
+    required: true
+
+  # Failover Node Configuration
+  enable_failover_node:
+    type: boolean
+    title: "Enable Failover Node"
+    description: "Create a failover node in a different Availability Domain"
+    default: false
+
+  failover_ad:
+    type: oci:identity:availabilitydomain:name
+    title: "Failover Node Availability Domain"
+    description: "AD for the failover node (should be different from primary)"
+    required: true
+    visible:
+      eq:
+        - ${enable_failover_node}
+        - true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  failover_shape:
+    type: oci:core:instanceshape:name
+    title: "Failover Node Shape"
+    description: "Compute shape for the failover node"
+    default: "VM.Standard.E5.Flex"
+    required: true
+    visible:
+      eq:
+        - ${enable_failover_node}
+        - true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  failover_ocpus:
+    type: integer
+    title: "Failover Node OCPUs"
+    description: "Number of OCPUs (minimum 10)"
+    minimum: 10
+    maximum: 128
+    default: 10
+    visible:
+      eq:
+        - ${enable_failover_node}
+        - true
+
+  failover_memory_gb:
+    type: integer
+    title: "Failover Node Memory (GB)"
+    minimum: 16
+    maximum: 1024
+    default: 64
+    visible:
+      eq:
+        - ${enable_failover_node}
+        - true
+
+  failover_boot_volume_size_gb:
+    type: integer
+    title: "Failover Boot Volume Size (GB)"
+    minimum: 50
+    maximum: 32768
+    default: 200
+    visible:
+      eq:
+        - ${enable_failover_node}
+        - true
+
+  # Performance Settings
+  hyperthreading:
+    type: boolean
+    title: "Enable Hyperthreading (SMT)"
+    description: "Disabled by default for optimal Aeron benchmarking performance"
+    default: false
+
+  # Network Configuration
+  use_existing_vcn:
+    type: boolean
+    title: "Use Existing VCN"
+    description: "Use an existing VCN instead of creating a new one"
+    default: false
+
+  vcn_compartment_ocid:
+    type: oci:identity:compartment:id
+    title: "VCN Compartment"
+    description: "Compartment where VCN exists or will be created"
+    default: ${compartment_ocid}
+    dependsOn:
+      compartmentId: ${tenancy_ocid}
+
+  existing_vcn_id:
+    type: oci:core:vcn:id
+    title: "Existing VCN"
+    description: "Select an existing VCN"
+    visible:
+      eq:
+        - ${use_existing_vcn}
+        - true
+    dependsOn:
+      compartmentId: ${vcn_compartment_ocid}
+
+  existing_subnet_id:
+    type: oci:core:subnet:id
+    title: "Existing Subnet"
+    description: "Select an existing subnet"
+    visible:
+      eq:
+        - ${use_existing_vcn}
+        - true
+    dependsOn:
+      compartmentId: ${vcn_compartment_ocid}
+      vcnId: ${existing_vcn_id}
+
+  vcn_cidr_block:
+    type: string
+    title: "VCN CIDR Block"
+    description: "CIDR block for new VCN"
+    default: "10.0.0.0/16"
+    visible:
+      eq:
+        - ${use_existing_vcn}
+        - false
+
+  public_subnet_cidr:
+    type: string
+    title: "Public Subnet CIDR"
+    default: "10.0.0.0/24"
+    visible:
+      eq:
+        - ${use_existing_vcn}
+        - false
+
+  private_subnet_cidr:
+    type: string
+    title: "Private Subnet CIDR"
+    default: "10.0.1.0/24"
+    visible:
+      eq:
+        - ${use_existing_vcn}
+        - false
+
+  private_deployment:
+    type: boolean
+    title: "Private Deployment"
+    description: "Deploy without public IPs (requires VPN/FastConnect)"
+    default: false
+
+  # Image Configuration
+  use_marketplace_image:
+    type: boolean
+    title: "Use Marketplace Image"
+    description: "Use Oracle Linux HPC image from marketplace"
+    default: true
+
+  marketplace_image_version:
+    type: enum
+    title: "Marketplace Image Version"
+    enum:
+      - "HPC_OL8"
+    default: "HPC_OL8"
+    visible:
+      eq:
+        - ${use_marketplace_image}
+        - true
+
+  image_ocid:
+    type: string
+    title: "Custom Image OCID"
+    description: "Custom image OCID"
+    visible:
+      eq:
+        - ${use_marketplace_image}
+        - false
+
+  # Aeron Configuration
+  install_aeron:
+    type: boolean
+    title: "Install Aeron"
+    description: "Install Aeron and dependencies automatically"
+    default: true
+
+  aeron_version:
+    type: string
+    title: "Aeron Version"
+    default: "1.44.1"
+    visible:
+      eq:
+        - ${install_aeron}
+        - true
+
+  java_version:
+    type: enum
+    title: "Java Version"
+    description: "Eclipse Temurin (Adoptium) Java version"
+    enum:
+      - "17"
+      - "21"
+    default: "21"
+    visible:
+      eq:
+        - ${install_aeron}
+        - true
+
+  run_benchmarks:
+    type: boolean
+    title: "Run Benchmarks After Deployment"
+    description: "Automatically run Aeron benchmarks after installation"
+    default: false
+    visible:
+      eq:
+        - ${install_aeron}
+        - true
+
+  ssh_username:
+    type: string
+    title: "SSH Username"
+    default: "opc"
+
+  use_instance_principal:
+    type: boolean
+    title: "Use Instance Principal"
+    default: true

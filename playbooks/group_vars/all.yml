@@ -1,0 +1,30 @@
+---
+aeron_dir: /opt/aeron
+aeron_version: "1.44.1"
+java_version: "21"
+hyperthreading: false
+
+aeron_java_opts: >-
+  -XX:+UnlockExperimentalVMOptions
+  -XX:+UseZGC
+  -XX:+UseLargePages
+  -XX:+AlwaysPreTouch
+  -XX:MaxDirectMemorySize=4g
+  -Dagrona.disable.bounds.checks=true
+  -Daeron.term.buffer.sparse.file=false
+  -Daeron.pre.touch.mapped.memory=true
+
+benchmark_message_sizes:
+  - 32
+  - 64
+  - 128
+  - 256
+  - 512
+  - 1024
+
+benchmark_burst_lengths:
+  - 1
+  - 10
+  - 100
+
+benchmark_iterations: 3

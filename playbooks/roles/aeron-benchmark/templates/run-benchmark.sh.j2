@@ -1,0 +1,71 @@
+#!/bin/bash
+set -e
+
+AERON_DIR="{{ aeron_dir }}"
+RESULTS_DIR="${AERON_DIR}/results"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+RESULT_FILE="${RESULTS_DIR}/benchmark_${TIMESTAMP}.txt"
+
+echo "=== Aeron Benchmark Suite ===" | tee $RESULT_FILE
+echo "Timestamp: $(date)" | tee -a $RESULT_FILE
+echo "Hostname: $(hostname)" | tee -a $RESULT_FILE
+echo "" | tee -a $RESULT_FILE
+
+# System information
+echo "=== System Information ===" | tee -a $RESULT_FILE
+echo "CPU Info:" | tee -a $RESULT_FILE
+lscpu | grep -E "Model name|Socket|Core|Thread|CPU\(s\):" | tee -a $RESULT_FILE
+echo "" | tee -a $RESULT_FILE
+
+echo "Memory:" | tee -a $RESULT_FILE
+free -h | tee -a $RESULT_FILE
+echo "" | tee -a $RESULT_FILE
+
+echo "Hyperthreading Status:" | tee -a $RESULT_FILE
+cat /sys/devices/system/cpu/smt/active 2>/dev/null && echo "SMT active" || echo "SMT disabled" | tee -a $RESULT_FILE
+echo "" | tee -a $RESULT_FILE
+
+# Check for NUMA
+echo "NUMA Topology:" | tee -a $RESULT_FILE
+numactl --hardware 2>/dev/null || echo "numactl not available" | tee -a $RESULT_FILE
+echo "" | tee -a $RESULT_FILE
+
+# Start Media Driver in background
+echo "=== Starting Media Driver ===" | tee -a $RESULT_FILE
+${AERON_DIR}/bin/media-driver.sh &
+MEDIA_DRIVER_PID=$!
+sleep 5
+
+cleanup() {
+    echo "Stopping Media Driver..." | tee -a $RESULT_FILE
+    kill $MEDIA_DRIVER_PID 2>/dev/null || true
+    wait $MEDIA_DRIVER_PID 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Start Pong responder
+echo "=== Starting Pong Responder ===" | tee -a $RESULT_FILE
+${AERON_DIR}/bin/pong.sh &
+PONG_PID=$!
+sleep 2
+
+# Run latency benchmarks
+echo "" | tee -a $RESULT_FILE
+echo "=== Latency Benchmarks ===" | tee -a $RESULT_FILE
+
+{% for size in benchmark_message_sizes %}
+echo "" | tee -a $RESULT_FILE
+echo "--- Message Size: {{ size }} bytes ---" | tee -a $RESULT_FILE
+for i in $(seq 1 {{ benchmark_iterations }}); do
+    echo "Iteration $i:" | tee -a $RESULT_FILE
+    ${AERON_DIR}/bin/ping.sh {{ size }} 1000000 2>&1 | tee -a $RESULT_FILE
+    sleep 1
+done
+{% endfor %}
+
+# Stop Pong
+kill $PONG_PID 2>/dev/null || true
+
+echo "" | tee -a $RESULT_FILE
+echo "=== Benchmark Complete ===" | tee -a $RESULT_FILE
+echo "Results saved to: $RESULT_FILE"

@@ -1,0 +1,18 @@
+---
+- name: Create benchmark runner script
+  template:
+    src: run-benchmark.sh.j2
+    dest: "{{ aeron_dir }}/run-benchmark.sh"
+    mode: '0755'
+
+- name: Create results directory
+  file:
+    path: "{{ aeron_dir }}/results"
+    state: directory
+    mode: '0755'
+
+- name: Create benchmark configuration
+  template:
+    src: benchmark-config.yml.j2
+    dest: "{{ aeron_dir }}/benchmark-config.yml"
+    mode: '0644'
