@@ -9,17 +9,17 @@ logoUrl: https://raw.githubusercontent.com/real-logic/aeron/master/aeron-logo.pn
 
 outputs:
   primary_public_ip:
-    title: "Primary Node Public IP"
+    title: "Controller Node Public IP"
     type: copyableString
     visible: true
 
   primary_ssh_command:
-    title: "SSH Command (Primary)"
+    title: "SSH Command (Controller)"
     type: copyableString
     visible: true
 
-  failover_public_ip:
-    title: "Failover Node Public IP"
+  failover_private_ip:
+    title: "Failover Node Private IP"
     type: copyableString
     visible: true
 
@@ -36,7 +36,7 @@ variableGroups:
       - use_custom_name
       - cluster_name
 
-  - title: "Primary Node Configuration"
+  - title: "Controller Node Configuration"
     variables:
       - primary_ad
       - primary_shape
@@ -44,7 +44,7 @@ variableGroups:
       - primary_memory_gb
       - primary_boot_volume_size_gb
 
-  - title: "Failover Node Configuration"
+  - title: "Failover Node Configuration (Private Subnet)"
     variables:
       - enable_failover_node
       - failover_ad
@@ -62,7 +62,8 @@ variableGroups:
       - use_existing_vcn
       - vcn_compartment_ocid
       - existing_vcn_id
-      - existing_subnet_id
+      - existing_public_subnet_id
+      - existing_private_subnet_id
       - vcn_cidr_block
       - public_subnet_cidr
       - private_subnet_cidr
@@ -70,14 +71,15 @@ variableGroups:
 
   - title: "Image Configuration"
     variables:
-      - use_marketplace_image
-      - marketplace_image_version
-      - image_ocid
+      - use_default_image
+      - marketplace_image
+      - custom_image_ocid
 
   - title: "Aeron Configuration"
     variables:
       - install_aeron
-      - aeron_version
+      - aeron_git_repo
+      - aeron_git_branch
       - java_version
       - run_benchmarks
 
@@ -87,6 +89,7 @@ variableGroups:
       - region
       - ssh_username
       - use_instance_principal
+      - default_image_name
     visible: false
 
 variables:
@@ -131,19 +134,19 @@ variables:
         - true
     required: true
 
-  # Primary Node Configuration
+  # Controller Node Configuration (Public Subnet)
   primary_ad:
     type: oci:identity:availabilitydomain:name
-    title: "Primary Node Availability Domain"
-    description: "AD for the primary Aeron node"
+    title: "Controller Node Availability Domain"
+    description: "AD for the controller Aeron node (deployed in public subnet)"
     required: true
     dependsOn:
       compartmentId: ${compartment_ocid}
 
   primary_shape:
     type: oci:core:instanceshape:name
-    title: "Primary Node Shape"
-    description: "Compute shape for the primary node"
+    title: "Controller Node Shape"
+    description: "Compute shape for the controller node"
     default: "VM.Standard.E5.Flex"
     required: true
     dependsOn:
@@ -151,7 +154,7 @@ variables:
 
   primary_ocpus:
     type: integer
-    title: "Primary Node OCPUs"
+    title: "Controller Node OCPUs"
     description: "Number of OCPUs (minimum 10 for Aeron benchmarking)"
     minimum: 10
     maximum: 128
@@ -180,7 +183,7 @@ variables:
 
   primary_memory_gb:
     type: integer
-    title: "Primary Node Memory (GB)"
+    title: "Controller Node Memory (GB)"
     description: "Memory in GB"
     minimum: 16
     maximum: 1024
@@ -209,23 +212,23 @@ variables:
 
   primary_boot_volume_size_gb:
     type: integer
-    title: "Primary Boot Volume Size (GB)"
+    title: "Controller Boot Volume Size (GB)"
     minimum: 50
     maximum: 32768
     default: 200
     required: true
 
-  # Failover Node Configuration
+  # Failover Node Configuration (Private Subnet)
   enable_failover_node:
     type: boolean
     title: "Enable Failover Node"
-    description: "Create a failover node in a different Availability Domain"
+    description: "Create a failover node in a different AD (deployed in private subnet)"
     default: false
 
   failover_ad:
     type: oci:identity:availabilitydomain:name
     title: "Failover Node Availability Domain"
-    description: "AD for the failover node (should be different from primary)"
+    description: "AD for the failover node (must be different from controller)"
     required: true
     visible:
       eq:
@@ -314,10 +317,10 @@ variables:
     dependsOn:
       compartmentId: ${vcn_compartment_ocid}
 
-  existing_subnet_id:
+  existing_public_subnet_id:
     type: oci:core:subnet:id
-    title: "Existing Subnet"
-    description: "Select an existing subnet"
+    title: "Public Subnet (Controller)"
+    description: "Select public subnet for controller node"
     visible:
       eq:
         - ${use_existing_vcn}
@@ -325,6 +328,24 @@ variables:
     dependsOn:
       compartmentId: ${vcn_compartment_ocid}
       vcnId: ${existing_vcn_id}
+      hidePrivateSubnet: true
+
+  existing_private_subnet_id:
+    type: oci:core:subnet:id
+    title: "Private Subnet (Failover)"
+    description: "Select private subnet for failover node"
+    visible:
+      and:
+        - eq:
+            - ${use_existing_vcn}
+            - true
+        - eq:
+            - ${enable_failover_node}
+            - true
+    dependsOn:
+      compartmentId: ${vcn_compartment_ocid}
+      vcnId: ${existing_vcn_id}
+      hidePublicSubnet: true
 
   vcn_cidr_block:
     type: string
@@ -338,7 +359,8 @@ variables:
 
   public_subnet_cidr:
     type: string
-    title: "Public Subnet CIDR"
+    title: "Public Subnet CIDR (Controller)"
+    description: "CIDR for public subnet where controller is deployed"
     default: "10.0.0.0/24"
     visible:
       eq:
@@ -347,7 +369,8 @@ variables:
 
   private_subnet_cidr:
     type: string
-    title: "Private Subnet CIDR"
+    title: "Private Subnet CIDR (Failover)"
+    description: "CIDR for private subnet where failover node is deployed"
     default: "10.0.1.0/24"
     visible:
       eq:
@@ -357,47 +380,68 @@ variables:
   private_deployment:
     type: boolean
     title: "Private Deployment"
-    description: "Deploy without public IPs (requires VPN/FastConnect)"
+    description: "Deploy controller without public IP (requires VPN/FastConnect)"
     default: false
 
   # Image Configuration
-  use_marketplace_image:
+  use_default_image:
     type: boolean
-    title: "Use Marketplace Image"
-    description: "Use Oracle Linux HPC image from marketplace"
+    title: "Use Default Image (Recommended)"
+    description: "Use Ubuntu 24.04 Minimal - best for Aeron benchmarking"
     default: true
 
-  marketplace_image_version:
+  default_image_name:
+    type: string
+    title: "Default Image"
+    default: "Canonical-Ubuntu-24.04-Minimal-2025.01.31-0"
+
+  marketplace_image:
     type: enum
-    title: "Marketplace Image Version"
+    title: "Alternative Marketplace Image"
+    description: "Select alternative image if not using default"
     enum:
-      - "HPC_OL8"
-    default: "HPC_OL8"
+      - "Canonical-Ubuntu-24.04-Minimal-2025.01.31-0"
+      - "Canonical-Ubuntu-24.04-2025.01.31-0"
+      - "Canonical-Ubuntu-22.04-Minimal-2025.01.30-0"
+      - "Canonical-Ubuntu-22.04-2025.01.30-0"
+    default: "Canonical-Ubuntu-24.04-Minimal-2025.01.31-0"
     visible:
       eq:
-        - ${use_marketplace_image}
-        - true
+        - ${use_default_image}
+        - false
 
-  image_ocid:
+  custom_image_ocid:
     type: string
     title: "Custom Image OCID"
-    description: "Custom image OCID"
+    description: "Custom image OCID (overrides marketplace selection)"
+    default: ""
     visible:
       eq:
-        - ${use_marketplace_image}
+        - ${use_default_image}
         - false
 
   # Aeron Configuration
   install_aeron:
     type: boolean
     title: "Install Aeron"
-    description: "Install Aeron and dependencies automatically"
+    description: "Install Aeron from Git and build from source"
     default: true
 
-  aeron_version:
+  aeron_git_repo:
     type: string
-    title: "Aeron Version"
-    default: "1.44.1"
+    title: "Aeron Git Repository"
+    description: "Git repository URL for Aeron"
+    default: "https://github.com/real-logic/aeron.git"
+    visible:
+      eq:
+        - ${install_aeron}
+        - true
+
+  aeron_git_branch:
+    type: string
+    title: "Aeron Git Branch/Tag"
+    description: "Branch or tag to checkout (leave empty for latest master)"
+    default: ""
     visible:
       eq:
         - ${install_aeron}
@@ -406,11 +450,11 @@ variables:
   java_version:
     type: enum
     title: "Java Version"
-    description: "Eclipse Temurin (Adoptium) Java version"
+    description: "OpenJDK version - 17 recommended for Aeron"
     enum:
       - "17"
       - "21"
-    default: "21"
+    default: "17"
     visible:
       eq:
         - ${install_aeron}
@@ -429,7 +473,8 @@ variables:
   ssh_username:
     type: string
     title: "SSH Username"
-    default: "opc"
+    description: "ubuntu for Ubuntu images"
+    default: "ubuntu"
 
   use_instance_principal:
     type: boolean

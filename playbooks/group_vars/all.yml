@@ -1,8 +1,10 @@
 ---
 aeron_dir: /opt/aeron
-aeron_version: "1.44.1"
-java_version: "21"
+aeron_git_repo: "https://github.com/real-logic/aeron.git"
+aeron_git_branch: ""
+java_version: "17"
 hyperthreading: false
+force_rebuild: false
 
 aeron_java_opts: >-
   -XX:+UnlockExperimentalVMOptions

@@ -10,18 +10,34 @@ data "oci_core_services" "all_services" {
   }
 }
 
-data "oci_core_images" "oracle_linux" {
+# Default image: Ubuntu 24.04 Minimal (best for Aeron benchmarking)
+data "oci_core_images" "ubuntu_minimal" {
   compartment_id           = var.compartment_ocid
-  operating_system         = "Oracle Linux"
-  operating_system_version = "8"
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "24.04 Minimal"
   shape                    = var.primary_shape
   sort_by                  = "TIMECREATED"
   sort_order               = "DESC"
 
   filter {
     name   = "display_name"
-    values = ["^Oracle-Linux-8\\.[0-9]+-[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}-[0-9]+$"]
+    values = ["^Canonical-Ubuntu-24\\.04-Minimal-.*$"]
     regex  = true
+  }
+}
+
+# Alternative marketplace images
+data "oci_core_images" "marketplace_image" {
+  compartment_id           = var.compartment_ocid
+  operating_system         = "Canonical Ubuntu"
+  shape                    = var.primary_shape
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+
+  filter {
+    name   = "display_name"
+    values = [var.marketplace_image]
+    regex  = false
   }
 }
 

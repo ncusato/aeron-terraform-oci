@@ -32,19 +32,18 @@ resource "oci_core_instance" "primary" {
   }
 
   create_vnic_details {
-    subnet_id        = local.subnet_id
+    subnet_id        = local.public_subnet_id
     assign_public_ip = !var.private_deployment
-    hostname_label   = "primary"
+    hostname_label   = "controller"
   }
 
   metadata = {
     ssh_authorized_keys = "${var.ssh_public_key}\n${tls_private_key.ssh.public_key_openssh}"
     user_data           = base64encode(templatefile("${path.module}/scripts/cloud-init.yaml", {
-      ssh_username     = var.ssh_username
-      hyperthreading   = var.hyperthreading
-      install_aeron    = var.install_aeron
-      aeron_version    = var.aeron_version
-      java_version     = var.java_version
+      ssh_username   = var.ssh_username
+      hyperthreading = var.hyperthreading
+      install_aeron  = var.install_aeron
+      java_version   = var.java_version
     }))
   }
 
@@ -105,19 +104,18 @@ resource "oci_core_instance" "failover" {
   }
 
   create_vnic_details {
-    subnet_id        = local.subnet_id
-    assign_public_ip = !var.private_deployment
+    subnet_id        = local.private_subnet_id
+    assign_public_ip = false
     hostname_label   = "failover"
   }
 
   metadata = {
     ssh_authorized_keys = "${var.ssh_public_key}\n${tls_private_key.ssh.public_key_openssh}"
     user_data           = base64encode(templatefile("${path.module}/scripts/cloud-init.yaml", {
-      ssh_username     = var.ssh_username
-      hyperthreading   = var.hyperthreading
-      install_aeron    = var.install_aeron
-      aeron_version    = var.aeron_version
-      java_version     = var.java_version
+      ssh_username   = var.ssh_username
+      hyperthreading = var.hyperthreading
+      install_aeron  = var.install_aeron
+      java_version   = var.java_version
     }))
   }
 
@@ -181,15 +179,15 @@ resource "null_resource" "primary_provisioner" {
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
-      var.install_aeron ? "cd /opt/aeron/playbooks && ansible-playbook -i 'localhost,' -c local site.yml -e 'hyperthreading=${var.hyperthreading} aeron_version=${var.aeron_version} java_version=${var.java_version}'" : "echo 'Skipping Aeron installation'",
+      var.install_aeron ? "cd /opt/aeron/playbooks && ansible-playbook -i 'localhost,' -c local site.yml -e 'hyperthreading=${var.hyperthreading} java_version=${var.java_version} aeron_git_repo=${var.aeron_git_repo} aeron_git_branch=${var.aeron_git_branch}'" : "echo 'Skipping Aeron installation'",
     ]
   }
 }
 
-# Provisioner for Failover Node
+# Provisioner for Failover Node (uses bastion through primary since failover is in private subnet)
 resource "null_resource" "failover_provisioner" {
   count      = var.enable_failover_node ? 1 : 0
-  depends_on = [oci_core_instance.failover]
+  depends_on = [oci_core_instance.failover, null_resource.primary_provisioner]
 
   triggers = {
     instance_id = oci_core_instance.failover[0].id
@@ -201,6 +199,10 @@ resource "null_resource" "failover_provisioner" {
     user        = var.ssh_username
     private_key = tls_private_key.ssh.private_key_pem
     timeout     = "10m"
+
+    bastion_host        = local.primary_host
+    bastion_user        = var.ssh_username
+    bastion_private_key = tls_private_key.ssh.private_key_pem
   }
 
   provisioner "remote-exec" {
@@ -225,7 +227,7 @@ resource "null_resource" "failover_provisioner" {
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
-      var.install_aeron ? "cd /opt/aeron/playbooks && ansible-playbook -i 'localhost,' -c local site.yml -e 'hyperthreading=${var.hyperthreading} aeron_version=${var.aeron_version} java_version=${var.java_version}'" : "echo 'Skipping Aeron installation'",
+      var.install_aeron ? "cd /opt/aeron/playbooks && ansible-playbook -i 'localhost,' -c local site.yml -e 'hyperthreading=${var.hyperthreading} java_version=${var.java_version} aeron_git_repo=${var.aeron_git_repo} aeron_git_branch=${var.aeron_git_branch}'" : "echo 'Skipping Aeron installation'",
     ]
   }
 }

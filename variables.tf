@@ -133,9 +133,15 @@ variable "existing_vcn_id" {
   default     = ""
 }
 
-variable "existing_subnet_id" {
+variable "existing_public_subnet_id" {
   type        = string
-  description = "OCID of existing subnet to use (when use_existing_vcn is true)"
+  description = "OCID of existing public subnet for controller (when use_existing_vcn is true)"
+  default     = ""
+}
+
+variable "existing_private_subnet_id" {
+  type        = string
+  description = "OCID of existing private subnet for compute nodes (when use_existing_vcn is true)"
   default     = ""
 }
 
@@ -164,42 +170,54 @@ variable "private_deployment" {
 }
 
 # Image Configuration
-variable "image_ocid" {
-  type        = string
-  description = "Custom image OCID (leave empty for Oracle Linux 8)"
-  default     = ""
-}
-
-variable "use_marketplace_image" {
+variable "use_default_image" {
   type        = bool
-  description = "Use Oracle Linux HPC image from marketplace"
+  description = "Use default Ubuntu 24.04 Minimal image (recommended for Aeron benchmarking)"
   default     = true
 }
 
-variable "marketplace_image_version" {
+variable "default_image_name" {
   type        = string
-  description = "Marketplace image version"
-  default     = "HPC_OL8"
+  description = "Default image for Aeron benchmarking"
+  default     = "Canonical-Ubuntu-24.04-Minimal-2025.01.31-0"
+}
+
+variable "marketplace_image" {
+  type        = string
+  description = "Alternative marketplace image"
+  default     = "Canonical-Ubuntu-24.04-Minimal-2025.01.31-0"
+}
+
+variable "custom_image_ocid" {
+  type        = string
+  description = "Custom image OCID (only used when not using default or marketplace)"
+  default     = ""
 }
 
 # Username Configuration
 variable "ssh_username" {
   type        = string
-  description = "Default SSH username"
-  default     = "opc"
+  description = "Default SSH username (ubuntu for Ubuntu images)"
+  default     = "ubuntu"
 }
 
 # Aeron Configuration
-variable "aeron_version" {
+variable "aeron_git_repo" {
   type        = string
-  description = "Aeron version to install"
-  default     = "1.44.1"
+  description = "Aeron Git repository URL"
+  default     = "https://github.com/real-logic/aeron.git"
+}
+
+variable "aeron_git_branch" {
+  type        = string
+  description = "Aeron Git branch or tag (leave empty for latest master)"
+  default     = ""
 }
 
 variable "java_version" {
   type        = string
-  description = "Java version (Temurin/Adoptium)"
-  default     = "21"
+  description = "Java version (Temurin/Adoptium) - 17 recommended for Aeron"
+  default     = "17"
 }
 
 variable "install_aeron" {

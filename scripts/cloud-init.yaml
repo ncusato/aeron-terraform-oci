@@ -4,9 +4,8 @@ package_update: true
 package_upgrade: true
 
 packages:
-  - epel-release
-  - ansible
   - git
+  - ansible
   - wget
   - curl
   - unzip
@@ -14,12 +13,13 @@ packages:
   - iotop
   - sysstat
   - numactl
-  - perf
+  - linux-tools-common
+  - linux-tools-generic
   - gcc
-  - gcc-c++
+  - g++
   - make
   - cmake
-  - java-${java_version}-openjdk-devel
+  - openjdk-${java_version}-jdk
 
 write_files:
   - path: /etc/sysctl.d/99-aeron.conf
@@ -89,11 +89,16 @@ write_files:
 runcmd:
   - sysctl --system
   - mkdir -p /opt/aeron/sbin
+  - mkdir -p /opt/aeron/logs
+  - mkdir -p /opt/aeron/results
+  - mkdir -p /dev/shm/aeron
+  - chmod 777 /dev/shm/aeron
 %{ if !hyperthreading }
   - systemctl daemon-reload
   - systemctl enable disable-hyperthreading.service
   - systemctl start disable-hyperthreading.service
 %{ endif }
+  - echo "JAVA_HOME=/usr/lib/jvm/java-${java_version}-openjdk-amd64" >> /etc/environment
   - echo "Cloud-init complete for Aeron deployment"
 
 final_message: "Aeron node ready after $UPTIME seconds"

@@ -3,16 +3,20 @@ locals {
 
   vcn_compartment = var.vcn_compartment_ocid != "" ? var.vcn_compartment_ocid : var.compartment_ocid
 
-  vcn_id    = var.use_existing_vcn ? var.existing_vcn_id : oci_core_vcn.aeron_vcn[0].id
-  subnet_id = var.use_existing_vcn ? var.existing_subnet_id : oci_core_subnet.public_subnet[0].id
+  vcn_id = var.use_existing_vcn ? var.existing_vcn_id : oci_core_vcn.aeron_vcn[0].id
+  
+  # Controller (primary) goes in public subnet, compute nodes in private subnet
+  public_subnet_id  = var.use_existing_vcn ? var.existing_public_subnet_id : oci_core_subnet.public_subnet[0].id
+  private_subnet_id = var.use_existing_vcn ? var.existing_private_subnet_id : oci_core_subnet.private_subnet[0].id
 
   is_primary_flex_shape  = length(regexall(".*Flex$", var.primary_shape)) > 0
   is_failover_flex_shape = length(regexall(".*Flex$", var.failover_shape)) > 0
 
-  primary_host   = var.private_deployment ? oci_core_instance.primary.private_ip : oci_core_instance.primary.public_ip
-  failover_host  = var.enable_failover_node ? (var.private_deployment ? oci_core_instance.failover[0].private_ip : oci_core_instance.failover[0].public_ip) : ""
+  primary_host  = var.private_deployment ? oci_core_instance.primary.private_ip : oci_core_instance.primary.public_ip
+  failover_host = var.enable_failover_node ? oci_core_instance.failover[0].private_ip : ""
 
-  compute_image = var.use_marketplace_image ? data.oci_core_images.oracle_linux.images[0].id : var.image_ocid
+  # Image selection: default Ubuntu 24.04 Minimal > marketplace selection > custom OCID
+  compute_image = var.use_default_image ? data.oci_core_images.ubuntu_minimal.images[0].id : (var.custom_image_ocid != "" ? var.custom_image_ocid : data.oci_core_images.marketplace_image.images[0].id)
 
   platform_config_type = contains(["BM.Standard.E4.128", "BM.Standard.E5.192", "BM.DenseIO.E4.128", "BM.DenseIO.E5.128"], var.primary_shape) ? "AMD_MILAN_BM" : contains(["BM.Standard.E3.128", "BM.DenseIO.E3.128"], var.primary_shape) ? "AMD_ROME_BM" : null
 }

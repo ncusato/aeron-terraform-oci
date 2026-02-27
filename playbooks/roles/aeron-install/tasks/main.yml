@@ -12,53 +12,80 @@
     - "{{ aeron_dir }}/results"
     - "/dev/shm/aeron"
 
-- name: Install Eclipse Temurin JDK
-  block:
-    - name: Add Adoptium repository
-      yum_repository:
-        name: adoptium
-        description: Adoptium
-        baseurl: https://packages.adoptium.net/artifactory/rpm/rhel/$releasever/$basearch
-        gpgkey: https://packages.adoptium.net/artifactory/api/gpg/key/public
-        gpgcheck: yes
-        enabled: yes
-      when: ansible_os_family == 'RedHat'
+- name: Ensure git is installed
+  apt:
+    name: git
+    state: present
+    update_cache: yes
+  when: ansible_os_family == 'Debian'
 
-    - name: Install Temurin JDK
-      package:
-        name: "temurin-{{ java_version }}-jdk"
-        state: present
-      when: ansible_os_family == 'RedHat'
+- name: Ensure git is installed (RHEL)
+  yum:
+    name: git
+    state: present
+  when: ansible_os_family == 'RedHat'
 
-- name: Set JAVA_HOME
+- name: Install Java {{ java_version }} (Ubuntu)
+  apt:
+    name: "openjdk-{{ java_version }}-jdk"
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Install Java {{ java_version }} (RHEL)
+  yum:
+    name: "java-{{ java_version }}-openjdk-devel"
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Set JAVA_HOME for Ubuntu
   lineinfile:
     path: /etc/environment
-    line: "JAVA_HOME=/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+    line: "JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
     create: yes
+  when: ansible_os_family == 'Debian'
 
-- name: Download Aeron
-  get_url:
-    url: "https://repo1.maven.org/maven2/io/aeron/aeron-all/{{ aeron_version }}/aeron-all-{{ aeron_version }}.jar"
-    dest: "{{ aeron_dir }}/lib/aeron-all-{{ aeron_version }}.jar"
-    mode: '0644'
+- name: Set JAVA_HOME for RHEL
+  lineinfile:
+    path: /etc/environment
+    line: "JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk"
+    create: yes
+  when: ansible_os_family == 'RedHat'
 
-- name: Download Aeron samples
-  get_url:
-    url: "https://repo1.maven.org/maven2/io/aeron/aeron-samples/{{ aeron_version }}/aeron-samples-{{ aeron_version }}.jar"
-    dest: "{{ aeron_dir }}/lib/aeron-samples-{{ aeron_version }}.jar"
-    mode: '0644'
+- name: Clone Aeron repository
+  git:
+    repo: "{{ aeron_git_repo }}"
+    dest: "{{ aeron_dir }}/aeron-src"
+    version: "{{ aeron_git_branch | default('master', true) }}"
+    force: yes
+  register: aeron_clone
 
-- name: Download Agrona
-  get_url:
-    url: "https://repo1.maven.org/maven2/org/agrona/agrona/1.21.2/agrona-1.21.2.jar"
-    dest: "{{ aeron_dir }}/lib/agrona-1.21.2.jar"
-    mode: '0644'
+- name: Build Aeron with Gradle
+  shell: |
+    export JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+    ./gradlew clean
+    ./gradlew assemble -x javadoc
+  args:
+    chdir: "{{ aeron_dir }}/aeron-src"
+  environment:
+    JAVA_HOME: "/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
+  when: aeron_clone.changed or force_rebuild | default(false)
 
-- name: Download HdrHistogram
-  get_url:
-    url: "https://repo1.maven.org/maven2/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.jar"
-    dest: "{{ aeron_dir }}/lib/HdrHistogram-2.2.2.jar"
+- name: Find built Aeron jars
+  find:
+    paths: "{{ aeron_dir }}/aeron-src"
+    patterns: "*.jar"
+    recurse: yes
+    file_type: file
+  register: aeron_jars
+
+- name: Copy Aeron jars to lib directory
+  copy:
+    src: "{{ item.path }}"
+    dest: "{{ aeron_dir }}/lib/"
+    remote_src: yes
     mode: '0644'
+  loop: "{{ aeron_jars.files }}"
+  when: "'build/libs' in item.path and 'sources' not in item.path and 'javadoc' not in item.path"
 
 - name: Create media driver script
   copy:
@@ -67,12 +94,12 @@
     content: |
       #!/bin/bash
       AERON_DIR="{{ aeron_dir }}"
-      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
       export JAVA_OPTS="{{ aeron_java_opts }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
-        -cp "$AERON_DIR/lib/*" \
+        -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
         io.aeron.driver.MediaDriver \
         "$@"
 
@@ -83,7 +110,7 @@
     content: |
       #!/bin/bash
       AERON_DIR="{{ aeron_dir }}"
-      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
       MESSAGE_SIZE=${1:-32}
       MESSAGES=${2:-1000000}
@@ -91,7 +118,7 @@
       export JAVA_OPTS="{{ aeron_java_opts }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
-        -cp "$AERON_DIR/lib/*" \
+        -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
         io.aeron.samples.Ping \
         -c aeron:udp?endpoint=localhost:20121 \
         -m $MESSAGE_SIZE \
@@ -105,12 +132,12 @@
     content: |
       #!/bin/bash
       AERON_DIR="{{ aeron_dir }}"
-      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
       export JAVA_OPTS="{{ aeron_java_opts }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
-        -cp "$AERON_DIR/lib/*" \
+        -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
         io.aeron.samples.Pong \
         -c aeron:udp?endpoint=localhost:20121 \
         "$@"
@@ -122,7 +149,7 @@
     content: |
       #!/bin/bash
       AERON_DIR="{{ aeron_dir }}"
-      JAVA_HOME="/usr/lib/jvm/temurin-{{ java_version }}-jdk"
+      JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
       MESSAGE_SIZE=${1:-32}
       MESSAGES=${2:-100000000}
@@ -130,7 +157,7 @@
       export JAVA_OPTS="{{ aeron_java_opts }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
-        -cp "$AERON_DIR/lib/*" \
+        -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
         io.aeron.samples.StreamingPublisher \
         -c aeron:udp?endpoint=localhost:20121 \
         -m $MESSAGE_SIZE \
@@ -184,13 +211,20 @@
       echo "CPUs $CPU_LIST isolated for Aeron"
       echo "Run benchmark with: taskset -c $CPU_LIST <command>"
 
+- name: Get Aeron version from build
+  shell: |
+    cd {{ aeron_dir }}/aeron-src && git describe --tags --always 2>/dev/null || echo "latest"
+  register: aeron_version_result
+  changed_when: false
+
 - name: Display installation summary
   debug:
     msg: |
-      Aeron {{ aeron_version }} installed successfully!
+      Aeron {{ aeron_version_result.stdout }} installed successfully!
       
       Location: {{ aeron_dir }}
-      Java: Temurin {{ java_version }}
+      Source: {{ aeron_dir }}/aeron-src
+      Java: OpenJDK {{ java_version }}
       
       Scripts:
         - {{ aeron_dir }}/bin/media-driver.sh  (Start media driver)
