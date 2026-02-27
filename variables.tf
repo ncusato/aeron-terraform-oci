@@ -32,41 +32,87 @@ variable "use_custom_name" {
   default     = false
 }
 
-# Primary Node Configuration
-variable "primary_ad" {
+# =============================================================================
+# Controller Node Configuration (Public Subnet - Orchestrator)
+# =============================================================================
+variable "controller_ad" {
   type        = string
-  description = "Availability Domain for the primary node"
+  description = "Availability Domain for the controller node"
 }
 
-variable "primary_shape" {
+variable "controller_shape" {
   type        = string
-  description = "Compute shape for the primary node"
+  description = "Compute shape for the controller node"
   default     = "VM.Standard.E5.Flex"
 }
 
-variable "primary_ocpus" {
+variable "controller_ocpus" {
   type        = number
-  description = "Number of OCPUs for the primary node (minimum 10)"
-  default     = 10
+  description = "Number of OCPUs for the controller node (orchestrator only)"
+  default     = 2
+}
+
+variable "controller_memory_gb" {
+  type        = number
+  description = "Memory in GB for the controller node"
+  default     = 16
+}
+
+variable "controller_boot_volume_size_gb" {
+  type        = number
+  description = "Boot volume size in GB for the controller node"
+  default     = 100
+}
+
+# =============================================================================
+# Benchmark Nodes Configuration (Private Subnet - Client/Receiver)
+# =============================================================================
+variable "benchmark_ad" {
+  type        = string
+  description = "Availability Domain for benchmark nodes (client/receiver)"
+}
+
+variable "benchmark_node_count" {
+  type        = number
+  description = "Number of benchmark nodes to deploy (minimum 2 for client/receiver pair)"
+  default     = 2
   validation {
-    condition     = var.primary_ocpus >= 10
-    error_message = "Primary node requires at least 10 OCPUs."
+    condition     = var.benchmark_node_count >= 2
+    error_message = "At least 2 benchmark nodes are required (client and receiver)."
   }
 }
 
-variable "primary_memory_gb" {
+variable "benchmark_shape" {
+  type        = string
+  description = "Compute shape for benchmark nodes"
+  default     = "VM.Standard.E5.Flex"
+}
+
+variable "benchmark_ocpus" {
   type        = number
-  description = "Memory in GB for the primary node"
+  description = "Number of OCPUs for each benchmark node (minimum 10 for Aeron performance)"
+  default     = 10
+  validation {
+    condition     = var.benchmark_ocpus >= 10
+    error_message = "Benchmark nodes require at least 10 OCPUs for optimal Aeron performance."
+  }
+}
+
+variable "benchmark_memory_gb" {
+  type        = number
+  description = "Memory in GB for each benchmark node"
   default     = 64
 }
 
-variable "primary_boot_volume_size_gb" {
+variable "benchmark_boot_volume_size_gb" {
   type        = number
-  description = "Boot volume size in GB for the primary node"
+  description = "Boot volume size in GB for benchmark nodes"
   default     = 200
 }
 
-# Failover Node Configuration
+# =============================================================================
+# Failover Node Configuration (Private Subnet - Different AD)
+# =============================================================================
 variable "enable_failover_node" {
   type        = bool
   description = "Enable a failover node in a separate Availability Domain"
@@ -75,7 +121,7 @@ variable "enable_failover_node" {
 
 variable "failover_ad" {
   type        = string
-  description = "Availability Domain for the failover node (must be different from primary)"
+  description = "Availability Domain for the failover node (must be different from benchmark nodes)"
   default     = ""
 }
 
@@ -107,14 +153,18 @@ variable "failover_boot_volume_size_gb" {
   default     = 200
 }
 
-# Hyperthreading - Disabled by default for Aeron benchmarking
+# =============================================================================
+# Performance Settings
+# =============================================================================
 variable "hyperthreading" {
   type        = bool
   description = "Enable hyperthreading (SMT). Disabled by default for optimal Aeron performance."
   default     = false
 }
 
+# =============================================================================
 # Network Configuration
+# =============================================================================
 variable "use_existing_vcn" {
   type        = bool
   description = "Use an existing VCN instead of creating a new one"
@@ -141,7 +191,7 @@ variable "existing_public_subnet_id" {
 
 variable "existing_private_subnet_id" {
   type        = string
-  description = "OCID of existing private subnet for compute nodes (when use_existing_vcn is true)"
+  description = "OCID of existing private subnet for benchmark/failover nodes (when use_existing_vcn is true)"
   default     = ""
 }
 
@@ -165,11 +215,13 @@ variable "private_subnet_cidr" {
 
 variable "private_deployment" {
   type        = bool
-  description = "Deploy nodes without public IPs (requires VPN/FastConnect access)"
+  description = "Deploy controller without public IP (requires VPN/FastConnect access)"
   default     = false
 }
 
+# =============================================================================
 # Image Configuration
+# =============================================================================
 variable "use_default_image" {
   type        = bool
   description = "Use default Ubuntu 24.04 Minimal image (recommended for Aeron benchmarking)"
@@ -194,14 +246,18 @@ variable "custom_image_ocid" {
   default     = ""
 }
 
+# =============================================================================
 # Username Configuration
+# =============================================================================
 variable "ssh_username" {
   type        = string
   description = "Default SSH username (ubuntu for Ubuntu images)"
   default     = "ubuntu"
 }
 
+# =============================================================================
 # Aeron Configuration
+# =============================================================================
 variable "aeron_git_repo" {
   type        = string
   description = "Aeron Git repository URL"
@@ -232,7 +288,9 @@ variable "run_benchmarks" {
   default     = false
 }
 
+# =============================================================================
 # Instance Principal for API access
+# =============================================================================
 variable "use_instance_principal" {
   type        = bool
   description = "Use instance principal for OCI API authentication"

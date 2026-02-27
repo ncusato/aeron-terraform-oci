@@ -1,6 +1,6 @@
 ---
 title: "Aeron Deployment for OCI"
-description: "Deploy Aeron messaging system with optional failover node for high-performance benchmarking on Oracle Cloud Infrastructure"
+description: "Deploy Aeron messaging system with controller, benchmark nodes, and optional failover for high-performance benchmarking on Oracle Cloud Infrastructure"
 schemaVersion: 1.1.0
 version: "1.0.0"
 locale: "en"
@@ -8,13 +8,23 @@ locale: "en"
 logoUrl: https://raw.githubusercontent.com/real-logic/aeron/master/aeron-logo.png
 
 outputs:
-  primary_public_ip:
+  controller_public_ip:
     title: "Controller Node Public IP"
     type: copyableString
     visible: true
 
-  primary_ssh_command:
+  controller_ssh_command:
     title: "SSH Command (Controller)"
+    type: copyableString
+    visible: true
+
+  client_node_ip:
+    title: "Client Node Private IP"
+    type: copyableString
+    visible: true
+
+  receiver_node_ip:
+    title: "Receiver Node Private IP"
     type: copyableString
     visible: true
 
@@ -36,15 +46,24 @@ variableGroups:
       - use_custom_name
       - cluster_name
 
-  - title: "Controller Node Configuration"
+  - title: "Controller Node (Orchestrator - Public Subnet)"
     variables:
-      - primary_ad
-      - primary_shape
-      - primary_ocpus
-      - primary_memory_gb
-      - primary_boot_volume_size_gb
+      - controller_ad
+      - controller_shape
+      - controller_ocpus
+      - controller_memory_gb
+      - controller_boot_volume_size_gb
 
-  - title: "Failover Node Configuration (Private Subnet)"
+  - title: "Benchmark Nodes (Client/Receiver - Private Subnet)"
+    variables:
+      - benchmark_ad
+      - benchmark_node_count
+      - benchmark_shape
+      - benchmark_ocpus
+      - benchmark_memory_gb
+      - benchmark_boot_volume_size_gb
+
+  - title: "Failover Node (Private Subnet - Different AD)"
     variables:
       - enable_failover_node
       - failover_ad
@@ -134,28 +153,125 @@ variables:
         - true
     required: true
 
-  # Controller Node Configuration (Public Subnet)
-  primary_ad:
+  # ==========================================================================
+  # Controller Node Configuration (Public Subnet - Orchestrator)
+  # ==========================================================================
+  controller_ad:
     type: oci:identity:availabilitydomain:name
     title: "Controller Node Availability Domain"
-    description: "AD for the controller Aeron node (deployed in public subnet)"
+    description: "AD for the controller/orchestrator node (deployed in public subnet)"
     required: true
     dependsOn:
       compartmentId: ${compartment_ocid}
 
-  primary_shape:
+  controller_shape:
     type: oci:core:instanceshape:name
     title: "Controller Node Shape"
-    description: "Compute shape for the controller node"
+    description: "Compute shape for the controller (orchestrator only, smaller is fine)"
     default: "VM.Standard.E5.Flex"
     required: true
     dependsOn:
       compartmentId: ${compartment_ocid}
 
-  primary_ocpus:
+  controller_ocpus:
     type: integer
     title: "Controller Node OCPUs"
-    description: "Number of OCPUs (minimum 10 for Aeron benchmarking)"
+    description: "Number of OCPUs for controller (orchestrator only, no minimum)"
+    minimum: 1
+    maximum: 64
+    default: 2
+    required: true
+    visible:
+      or:
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.E3.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.E4.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.E5.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard3.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Optimized3.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.A1.Flex"
+
+  controller_memory_gb:
+    type: integer
+    title: "Controller Node Memory (GB)"
+    description: "Memory in GB for controller"
+    minimum: 8
+    maximum: 256
+    default: 16
+    required: true
+    visible:
+      or:
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.E3.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.E4.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.E5.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard3.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Optimized3.Flex"
+        - eq:
+            - ${controller_shape}
+            - "VM.Standard.A1.Flex"
+
+  controller_boot_volume_size_gb:
+    type: integer
+    title: "Controller Boot Volume Size (GB)"
+    minimum: 50
+    maximum: 1024
+    default: 100
+    required: true
+
+  # ==========================================================================
+  # Benchmark Nodes Configuration (Private Subnet - Client/Receiver)
+  # ==========================================================================
+  benchmark_ad:
+    type: oci:identity:availabilitydomain:name
+    title: "Benchmark Nodes Availability Domain"
+    description: "AD for benchmark nodes (client/receiver) - all deployed in same AD"
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  benchmark_node_count:
+    type: integer
+    title: "Number of Benchmark Nodes"
+    description: "Number of benchmark nodes to deploy (minimum 2 for client/receiver)"
+    minimum: 2
+    maximum: 10
+    default: 2
+    required: true
+
+  benchmark_shape:
+    type: oci:core:instanceshape:name
+    title: "Benchmark Node Shape"
+    description: "Compute shape for benchmark nodes (high performance recommended)"
+    default: "VM.Standard.E5.Flex"
+    required: true
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  benchmark_ocpus:
+    type: integer
+    title: "Benchmark Node OCPUs"
+    description: "Number of OCPUs per benchmark node (minimum 10 for Aeron performance)"
     minimum: 10
     maximum: 128
     default: 10
@@ -163,28 +279,28 @@ variables:
     visible:
       or:
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.E3.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.E4.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.E5.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard3.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Optimized3.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.A1.Flex"
 
-  primary_memory_gb:
+  benchmark_memory_gb:
     type: integer
-    title: "Controller Node Memory (GB)"
-    description: "Memory in GB"
+    title: "Benchmark Node Memory (GB)"
+    description: "Memory in GB per benchmark node"
     minimum: 16
     maximum: 1024
     default: 64
@@ -192,43 +308,45 @@ variables:
     visible:
       or:
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.E3.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.E4.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.E5.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard3.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Optimized3.Flex"
         - eq:
-            - ${primary_shape}
+            - ${benchmark_shape}
             - "VM.Standard.A1.Flex"
 
-  primary_boot_volume_size_gb:
+  benchmark_boot_volume_size_gb:
     type: integer
-    title: "Controller Boot Volume Size (GB)"
+    title: "Benchmark Boot Volume Size (GB)"
     minimum: 50
     maximum: 32768
     default: 200
     required: true
 
-  # Failover Node Configuration (Private Subnet)
+  # ==========================================================================
+  # Failover Node Configuration (Private Subnet - Different AD)
+  # ==========================================================================
   enable_failover_node:
     type: boolean
     title: "Enable Failover Node"
-    description: "Create a failover node in a different AD (deployed in private subnet)"
+    description: "Create a failover node in a different Availability Domain"
     default: false
 
   failover_ad:
     type: oci:identity:availabilitydomain:name
     title: "Failover Node Availability Domain"
-    description: "AD for the failover node (must be different from controller)"
+    description: "AD for failover node (must be different from benchmark nodes)"
     required: true
     visible:
       eq:
@@ -253,7 +371,7 @@ variables:
   failover_ocpus:
     type: integer
     title: "Failover Node OCPUs"
-    description: "Number of OCPUs (minimum 10)"
+    description: "Number of OCPUs for failover node (minimum 10)"
     minimum: 10
     maximum: 128
     default: 10
@@ -284,14 +402,18 @@ variables:
         - ${enable_failover_node}
         - true
 
+  # ==========================================================================
   # Performance Settings
+  # ==========================================================================
   hyperthreading:
     type: boolean
     title: "Enable Hyperthreading (SMT)"
-    description: "Disabled by default for optimal Aeron benchmarking performance"
+    description: "Disabled by default for optimal Aeron benchmarking performance (applies to benchmark/failover nodes only)"
     default: false
 
+  # ==========================================================================
   # Network Configuration
+  # ==========================================================================
   use_existing_vcn:
     type: boolean
     title: "Use Existing VCN"
@@ -332,16 +454,12 @@ variables:
 
   existing_private_subnet_id:
     type: oci:core:subnet:id
-    title: "Private Subnet (Failover)"
-    description: "Select private subnet for failover node"
+    title: "Private Subnet (Benchmark/Failover)"
+    description: "Select private subnet for benchmark and failover nodes"
     visible:
-      and:
-        - eq:
-            - ${use_existing_vcn}
-            - true
-        - eq:
-            - ${enable_failover_node}
-            - true
+      eq:
+        - ${use_existing_vcn}
+        - true
     dependsOn:
       compartmentId: ${vcn_compartment_ocid}
       vcnId: ${existing_vcn_id}
@@ -369,8 +487,8 @@ variables:
 
   private_subnet_cidr:
     type: string
-    title: "Private Subnet CIDR (Failover)"
-    description: "CIDR for private subnet where failover node is deployed"
+    title: "Private Subnet CIDR (Benchmark/Failover)"
+    description: "CIDR for private subnet where benchmark and failover nodes are deployed"
     default: "10.0.1.0/24"
     visible:
       eq:
@@ -383,7 +501,9 @@ variables:
     description: "Deploy controller without public IP (requires VPN/FastConnect)"
     default: false
 
+  # ==========================================================================
   # Image Configuration
+  # ==========================================================================
   use_default_image:
     type: boolean
     title: "Use Default Image (Recommended)"
@@ -420,7 +540,9 @@ variables:
         - ${use_default_image}
         - false
 
+  # ==========================================================================
   # Aeron Configuration
+  # ==========================================================================
   install_aeron:
     type: boolean
     title: "Install Aeron"
