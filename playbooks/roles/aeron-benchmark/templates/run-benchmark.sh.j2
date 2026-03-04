@@ -1,14 +1,27 @@
 #!/bin/bash
+# Aeron single-node latency benchmark (Media Driver + Pong + Ping)
+# Reference profile: {{ message_length }}B @ {{ message_rate }} (aligned with quickstart)
 set -e
 
 AERON_DIR="{{ aeron_dir }}"
 RESULTS_DIR="${AERON_DIR}/results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RESULT_FILE="${RESULTS_DIR}/benchmark_${TIMESTAMP}.txt"
+SOCKET_BUF="{{ socket_buf | default(4194304) }}"
+
+# Preflight: ensure socket buffers are tuned (reduces "actual socket buffer < requested" warnings)
+tune_socket_buffers() {
+  sudo sysctl -w net.core.rmem_max=${SOCKET_BUF} \
+    net.core.wmem_max=${SOCKET_BUF} \
+    net.core.rmem_default=${SOCKET_BUF} \
+    net.core.wmem_default=${SOCKET_BUF} 2>/dev/null || true
+}
+tune_socket_buffers
 
 echo "=== Aeron Benchmark Suite ===" | tee $RESULT_FILE
 echo "Timestamp: $(date)" | tee -a $RESULT_FILE
 echo "Hostname: $(hostname)" | tee -a $RESULT_FILE
+echo "Profile: {{ message_length }}B @ {{ message_rate }} (reference)" | tee -a $RESULT_FILE
 echo "" | tee -a $RESULT_FILE
 
 # System information
@@ -25,7 +38,6 @@ echo "Hyperthreading Status:" | tee -a $RESULT_FILE
 cat /sys/devices/system/cpu/smt/active 2>/dev/null && echo "SMT active" || echo "SMT disabled" | tee -a $RESULT_FILE
 echo "" | tee -a $RESULT_FILE
 
-# Check for NUMA
 echo "NUMA Topology:" | tee -a $RESULT_FILE
 numactl --hardware 2>/dev/null || echo "numactl not available" | tee -a $RESULT_FILE
 echo "" | tee -a $RESULT_FILE
@@ -49,17 +61,25 @@ ${AERON_DIR}/bin/pong.sh &
 PONG_PID=$!
 sleep 2
 
-# Run latency benchmarks
+# Reference run: fixed profile {{ message_length }}B @ {{ message_rate }}
 echo "" | tee -a $RESULT_FILE
-echo "=== Latency Benchmarks ===" | tee -a $RESULT_FILE
+echo "=== Reference latency run ({{ message_length }}B @ {{ message_rate }}) ===" | tee -a $RESULT_FILE
+for i in $(seq 1 {{ benchmark_iterations }}); do
+  echo "Iteration $i:" | tee -a $RESULT_FILE
+  ${AERON_DIR}/bin/ping.sh {{ message_length }} 101000 2>&1 | tee -a $RESULT_FILE
+  sleep 1
+done
 
+# Sweep over message sizes
+echo "" | tee -a $RESULT_FILE
+echo "=== Latency sweep (multiple message sizes) ===" | tee -a $RESULT_FILE
 {% for size in benchmark_message_sizes %}
 echo "" | tee -a $RESULT_FILE
 echo "--- Message Size: {{ size }} bytes ---" | tee -a $RESULT_FILE
 for i in $(seq 1 {{ benchmark_iterations }}); do
-    echo "Iteration $i:" | tee -a $RESULT_FILE
-    ${AERON_DIR}/bin/ping.sh {{ size }} 1000000 2>&1 | tee -a $RESULT_FILE
-    sleep 1
+  echo "Iteration $i:" | tee -a $RESULT_FILE
+  ${AERON_DIR}/bin/ping.sh {{ size }} 1000000 2>&1 | tee -a $RESULT_FILE
+  sleep 1
 done
 {% endfor %}
 
@@ -69,3 +89,4 @@ kill $PONG_PID 2>/dev/null || true
 echo "" | tee -a $RESULT_FILE
 echo "=== Benchmark Complete ===" | tee -a $RESULT_FILE
 echo "Results saved to: $RESULT_FILE"
+echo "Key metrics: P50 (median), P99, P999, MAX latency in microseconds (us)"

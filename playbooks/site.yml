@@ -1,13 +1,9 @@
 ---
+# Aeron deployment and benchmark setup
+# Variables come from group_vars/all.yml and Terraform extra vars (-e)
 - name: Aeron Deployment
   hosts: all
   become: true
-  vars:
-    hyperthreading: false
-    aeron_version: "1.44.1"
-    java_version: "21"
-    aeron_dir: "/opt/aeron"
-    
   roles:
     - role: aeron-install
       tags: [install, aeron]

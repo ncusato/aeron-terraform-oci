@@ -12,16 +12,30 @@
     - "{{ aeron_dir }}/results"
     - "/dev/shm/aeron"
 
-- name: Ensure git is installed
+- name: Install git and benchmark tooling (Ubuntu)
   apt:
-    name: git
+    name:
+      - git
+      - numactl
+      - ethtool
+      - jq
+      - iptables-persistent
+      - rsync
+      - pciutils
+      - net-tools
+      - lsof
     state: present
     update_cache: yes
   when: ansible_os_family == 'Debian'
 
 - name: Ensure git is installed (RHEL)
   yum:
-    name: git
+    name:
+      - git
+      - numactl
+      - ethtool
+      - jq
+      - rsync
     state: present
   when: ansible_os_family == 'RedHat'
 
@@ -87,7 +101,7 @@
   loop: "{{ aeron_jars.files }}"
   when: "'build/libs' in item.path and 'sources' not in item.path and 'javadoc' not in item.path"
 
-- name: Create media driver script
+- name: Create media driver script (with latency-first tuning)
   copy:
     dest: "{{ aeron_dir }}/bin/media-driver.sh"
     mode: '0755'
@@ -97,13 +111,18 @@
       JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
       export JAVA_OPTS="{{ aeron_java_opts }}"
+      export AERON_SOCKET_SO_SNDBUF="{{ aeron_socket_so_sndbuf | default('2m') }}"
+      export AERON_SOCKET_SO_RCVBUF="{{ aeron_socket_so_rcvbuf | default('2m') }}"
+      export AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND="{{ aeron_max_messages_per_send | default(1) }}"
+      export AERON_RECEIVER_IO_VECTOR_CAPACITY="{{ aeron_receiver_io_vector_capacity | default(1) }}"
+      export AERON_SENDER_IO_VECTOR_CAPACITY="{{ aeron_sender_io_vector_capacity | default(1) }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
         -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
         io.aeron.driver.MediaDriver \
         "$@"
 
-- name: Create benchmark ping script
+- name: Create benchmark ping script (latency-first tuning)
   copy:
     dest: "{{ aeron_dir }}/bin/ping.sh"
     mode: '0755'
@@ -112,10 +131,13 @@
       AERON_DIR="{{ aeron_dir }}"
       JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
-      MESSAGE_SIZE=${1:-32}
+      MESSAGE_SIZE=${1:-{{ message_length | default(288) }}}
       MESSAGES=${2:-1000000}
       
       export JAVA_OPTS="{{ aeron_java_opts }}"
+      export AERON_SOCKET_SO_SNDBUF="{{ aeron_socket_so_sndbuf | default('2m') }}"
+      export AERON_SOCKET_SO_RCVBUF="{{ aeron_socket_so_rcvbuf | default('2m') }}"
+      export AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND="{{ aeron_max_messages_per_send | default(1) }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
         -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
@@ -125,7 +147,7 @@
         -n $MESSAGES \
         "$@"
 
-- name: Create benchmark pong script
+- name: Create benchmark pong script (latency-first tuning)
   copy:
     dest: "{{ aeron_dir }}/bin/pong.sh"
     mode: '0755'
@@ -135,6 +157,10 @@
       JAVA_HOME="/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
       
       export JAVA_OPTS="{{ aeron_java_opts }}"
+      export AERON_SOCKET_SO_SNDBUF="{{ aeron_socket_so_sndbuf | default('2m') }}"
+      export AERON_SOCKET_SO_RCVBUF="{{ aeron_socket_so_rcvbuf | default('2m') }}"
+      export AERON_RECEIVER_IO_VECTOR_CAPACITY="{{ aeron_receiver_io_vector_capacity | default(1) }}"
+      export AERON_SENDER_IO_VECTOR_CAPACITY="{{ aeron_sender_io_vector_capacity | default(1) }}"
       
       $JAVA_HOME/bin/java $JAVA_OPTS \
         -cp "$AERON_DIR/lib/*:$AERON_DIR/aeron-src/aeron-samples/build/libs/*:$AERON_DIR/aeron-src/aeron-all/build/libs/*" \
@@ -164,20 +190,42 @@
         -n $MESSAGES \
         "$@"
 
-- name: Configure sysctl for Aeron
-  sysctl:
-    name: "{{ item.name }}"
-    value: "{{ item.value }}"
-    state: present
-    sysctl_file: /etc/sysctl.d/99-aeron.conf
-    reload: yes
-  loop:
-    - { name: 'net.core.rmem_max', value: '8388608' }
-    - { name: 'net.core.wmem_max', value: '8388608' }
-    - { name: 'net.core.rmem_default', value: '1048576' }
-    - { name: 'net.core.wmem_default', value: '1048576' }
-    - { name: 'net.core.netdev_max_backlog', value: '30000' }
-    - { name: 'vm.swappiness', value: '10' }
+- name: Configure sysctl for Aeron (benchmark profile)
+  copy:
+    dest: /etc/sysctl.d/99-aeron-benchmarks.conf
+    content: |
+      # Aeron benchmark socket and memory tuning (aligned with quickstart)
+      net.core.rmem_max={{ socket_buf }}
+      net.core.wmem_max={{ socket_buf }}
+      net.core.rmem_default={{ socket_buf }}
+      net.core.wmem_default={{ socket_buf }}
+      net.core.netdev_max_backlog=30000
+      net.core.optmem_max=67108864
+      kernel.numa_balancing=0
+      vm.swappiness=10
+      vm.dirty_ratio=10
+      vm.dirty_background_ratio=5
+    mode: '0644'
+
+- name: Apply sysctl
+  command: sysctl -p /etc/sysctl.d/99-aeron-benchmarks.conf
+  changed_when: true
+
+- name: Configure CPU isolation GRUB drop-in (optional, requires reboot)
+  copy:
+    dest: /etc/default/grub.d/99-aeron-benchmarks.cfg
+    content: |
+      # Aeron CPU isolation: housekeeping vs isolated CPUs (see quickstart guide)
+      AERON_ISOLATE_CPUS="{{ isolated_cpus }}"
+      if [ -n "${AERON_ISOLATE_CPUS}" ]; then
+        GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT isolcpus=managed_irq,domain,${AERON_ISOLATE_CPUS} nohz_full=${AERON_ISOLATE_CPUS} rcu_nocbs=${AERON_ISOLATE_CPUS} irqaffinity={{ irq_affinity }}"
+      fi
+    mode: '0644'
+  when: apply_cpu_isolation_grub | default(false) | bool
+
+- name: Update grub (when CPU isolation is enabled)
+  command: update-grub
+  when: apply_cpu_isolation_grub | default(false) | bool
 
 - name: Set ulimits for Aeron
   pam_limits:

@@ -1,4 +1,5 @@
 ---
+# Base paths and versions
 aeron_dir: /opt/aeron
 aeron_git_repo: "https://github.com/real-logic/aeron.git"
 aeron_git_branch: ""
@@ -6,6 +7,30 @@ java_version: "17"
 hyperthreading: false
 force_rebuild: false
 
+# ---------------------------------------------------------------------------
+# Benchmark profile (aligned with Aeron quickstart for reproducible results)
+# Fixed message size and rate for comparable baselines across runs
+# ---------------------------------------------------------------------------
+message_length: 288
+message_rate: "101K"
+
+# Socket buffer size in bytes (4MiB recommended for tail latency)
+socket_buf: 4194304
+
+# CPU isolation (for nodes with 10+ cores, no-SMT: housekeeping 0-1, isolated 2-9)
+housekeeping_cpus: "0-1"
+isolated_cpus: "2-9"
+irq_affinity: "0-1"
+
+# Aeron latency-first tuning (reduces batching jitter)
+aeron_max_messages_per_send: 1
+aeron_receiver_io_vector_capacity: 1
+aeron_sender_io_vector_capacity: 1
+
+# Optional: apply GRUB-based CPU isolation (requires reboot)
+apply_cpu_isolation_grub: false
+
+# Java and Aeron JVM/options
 aeron_java_opts: >-
   -XX:+UnlockExperimentalVMOptions
   -XX:+UseZGC
@@ -16,11 +41,17 @@ aeron_java_opts: >-
   -Daeron.term.buffer.sparse.file=false
   -Daeron.pre.touch.mapped.memory=true
 
+# Socket buffer tuning for Aeron (2m = 2 MiB)
+aeron_socket_so_sndbuf: "2m"
+aeron_socket_so_rcvbuf: "2m"
+
+# Benchmark sweep (sizes and iterations for run-benchmark.sh)
 benchmark_message_sizes:
   - 32
   - 64
   - 128
   - 256
+  - 288
   - 512
   - 1024
 
