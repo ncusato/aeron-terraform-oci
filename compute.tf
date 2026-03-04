@@ -2,9 +2,9 @@
 # Playbooks archive (single file upload avoids directory provisioner failures)
 # =============================================================================
 data "archive_file" "playbooks" {
-  type        = "tgz"
+  type        = "zip"
   source_dir  = "${path.module}/playbooks"
-  output_path = "${path.module}/playbooks.tar.gz"
+  output_path = "${path.module}/playbooks.zip"
 }
 
 # =============================================================================
@@ -248,7 +248,7 @@ resource "null_resource" "controller_provisioner" {
 
   provisioner "file" {
     source      = data.archive_file.playbooks.output_path
-    destination = "/tmp/playbooks.tar.gz"
+    destination = "/tmp/playbooks.zip"
   }
 
   provisioner "remote-exec" {
@@ -256,8 +256,8 @@ resource "null_resource" "controller_provisioner" {
       "#!/bin/bash",
       "set -e",
       "mkdir -p /tmp/playbooks",
-      "tar -xzf /tmp/playbooks.tar.gz -C /tmp/playbooks",
-      "rm -f /tmp/playbooks.tar.gz",
+      "unzip -q -o /tmp/playbooks.zip -d /tmp/playbooks",
+      "rm -f /tmp/playbooks.zip",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
@@ -301,7 +301,7 @@ resource "null_resource" "benchmark_provisioner" {
 
   provisioner "file" {
     source      = data.archive_file.playbooks.output_path
-    destination = "/tmp/playbooks.tar.gz"
+    destination = "/tmp/playbooks.zip"
   }
 
   provisioner "remote-exec" {
@@ -309,8 +309,8 @@ resource "null_resource" "benchmark_provisioner" {
       "#!/bin/bash",
       "set -e",
       "mkdir -p /tmp/playbooks",
-      "tar -xzf /tmp/playbooks.tar.gz -C /tmp/playbooks",
-      "rm -f /tmp/playbooks.tar.gz",
+      "unzip -q -o /tmp/playbooks.zip -d /tmp/playbooks",
+      "rm -f /tmp/playbooks.zip",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
@@ -354,7 +354,7 @@ resource "null_resource" "failover_provisioner" {
 
   provisioner "file" {
     source      = data.archive_file.playbooks.output_path
-    destination = "/tmp/playbooks.tar.gz"
+    destination = "/tmp/playbooks.zip"
   }
 
   provisioner "remote-exec" {
@@ -362,8 +362,8 @@ resource "null_resource" "failover_provisioner" {
       "#!/bin/bash",
       "set -e",
       "mkdir -p /tmp/playbooks",
-      "tar -xzf /tmp/playbooks.tar.gz -C /tmp/playbooks",
-      "rm -f /tmp/playbooks.tar.gz",
+      "unzip -q -o /tmp/playbooks.zip -d /tmp/playbooks",
+      "rm -f /tmp/playbooks.zip",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",

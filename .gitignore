@@ -37,4 +37,5 @@ id_rsa*
 test.tfvars
 
 # Generated playbooks archive (used during apply)
+playbooks.zip
 playbooks.tar.gz
