@@ -156,6 +156,12 @@ variable "failover_boot_volume_size_gb" {
 # =============================================================================
 # Performance Settings
 # =============================================================================
+variable "use_sriov_networking" {
+  type        = bool
+  description = "Use hardware-assisted (SR-IOV) networking for lower latency. Disable for paravirtualized networking (e.g. if shape/image do not support SR-IOV)."
+  default     = true
+}
+
 variable "hyperthreading" {
   type        = bool
   description = "Enable hyperthreading (SMT). Disabled by default for optimal Aeron performance."

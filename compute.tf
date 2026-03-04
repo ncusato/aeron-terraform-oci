@@ -31,6 +31,10 @@ resource "oci_core_instance" "controller" {
     boot_volume_vpus_per_gb = 10
   }
 
+  launch_options {
+    network_type = var.use_sriov_networking ? "VFIO" : "PARAVIRTUALIZED"
+  }
+
   create_vnic_details {
     subnet_id        = local.public_subnet_id
     assign_public_ip = !var.private_deployment
@@ -103,6 +107,10 @@ resource "oci_core_instance" "benchmark" {
     source_id               = local.compute_image
     boot_volume_size_in_gbs = var.benchmark_boot_volume_size_gb
     boot_volume_vpus_per_gb = 20
+  }
+
+  launch_options {
+    network_type = var.use_sriov_networking ? "VFIO" : "PARAVIRTUALIZED"
   }
 
   create_vnic_details {
@@ -180,6 +188,10 @@ resource "oci_core_instance" "failover" {
     boot_volume_vpus_per_gb = 20
   }
 
+  launch_options {
+    network_type = var.use_sriov_networking ? "VFIO" : "PARAVIRTUALIZED"
+  }
+
   create_vnic_details {
     subnet_id        = local.private_subnet_id
     assign_public_ip = false
@@ -253,15 +265,27 @@ resource "null_resource" "controller_provisioner" {
 
   provisioner "remote-exec" {
     inline = [
-      "#!/bin/bash",
       "set -e",
       "mkdir -p /tmp/playbooks",
       "unzip -q -o /tmp/playbooks.zip -d /tmp/playbooks",
       "rm -f /tmp/playbooks.zip",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
+      "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron/playbooks",
+      "echo 'Playbooks deployed to /opt/aeron/playbooks'",
+    ]
+  }
+
+  provisioner "remote-exec" {
+    inline = var.install_aeron ? [
+      "set -e",
+      "echo 'Running Ansible (Aeron install and benchmark setup)...'",
+      "cd /opt/aeron/playbooks && ansible-playbook -i 'localhost,' -c local site.yml -e 'hyperthreading=true java_version=${var.java_version} aeron_git_repo=${var.aeron_git_repo} aeron_git_branch=${var.aeron_git_branch} node_role=controller' -v",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
-      var.install_aeron ? "cd /opt/aeron/playbooks && ansible-playbook -i 'localhost,' -c local site.yml -e 'hyperthreading=true java_version=${var.java_version} aeron_git_repo=${var.aeron_git_repo} aeron_git_branch=${var.aeron_git_branch} node_role=controller'" : "echo 'Skipping Aeron installation'",
+      "echo 'Ansible complete. Check /opt/aeron/benchmark and /opt/aeron/.aeron-ready'",
+    ] : [
+      "echo 'Skipping Aeron installation (install_aeron=false)'",
+      "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
     ]
   }
 }

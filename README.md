@@ -215,6 +215,16 @@ After apply, note the **controller public IP** and **benchmark private IPs** fro
 - **Benchmark/failover** (via controller):  
   `ssh -i <your-key> -J ubuntu@<controller-public-ip> ubuntu@<benchmark-private-ip>`
 
+### Verify installation on the controller
+
+After the stack apply completes, SSH to the controller and check:
+
+- **`/opt/aeron/playbooks`** — Ansible playbooks (deployed by Terraform).
+- **`/opt/aeron/benchmark`** — Benchmark scripts and config (`run-benchmark.sh`, `benchmark-config.yml`, `README.md`). Created by Ansible.
+- **`/opt/aeron/.aeron-ready`** — Present if Ansible completed successfully (Aeron install + benchmark setup).
+
+If `benchmark` or `.aeron-ready` is missing, Ansible may have failed during apply; check the apply logs and re-run if needed.
+
 ### Single-node: automated script
 
 On the controller or any benchmark node:
@@ -222,6 +232,8 @@ On the controller or any benchmark node:
 ```bash
 cd /opt/aeron
 ./run-benchmark.sh
+# or from the benchmark directory:
+cd /opt/aeron/benchmark && ./run-benchmark.sh
 ```
 
 This runs the reference profile (288B @ 101K) and a sweep. Results go to `/opt/aeron/results/`.

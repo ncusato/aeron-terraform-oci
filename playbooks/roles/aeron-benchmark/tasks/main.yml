@@ -1,5 +1,17 @@
 ---
-- name: Create benchmark runner script
+- name: Create benchmark directory
+  file:
+    path: "{{ aeron_dir }}/benchmark"
+    state: directory
+    mode: '0755'
+
+- name: Create benchmark runner script (in benchmark dir)
+  template:
+    src: run-benchmark.sh.j2
+    dest: "{{ aeron_dir }}/benchmark/run-benchmark.sh"
+    mode: '0755'
+
+- name: Create benchmark runner script (in aeron root for backward compatibility)
   template:
     src: run-benchmark.sh.j2
     dest: "{{ aeron_dir }}/run-benchmark.sh"
@@ -11,8 +23,30 @@
     state: directory
     mode: '0755'
 
-- name: Create benchmark configuration
+- name: Create benchmark configuration (in benchmark dir)
+  template:
+    src: benchmark-config.yml.j2
+    dest: "{{ aeron_dir }}/benchmark/benchmark-config.yml"
+    mode: '0644'
+
+- name: Create benchmark configuration (in aeron root)
   template:
     src: benchmark-config.yml.j2
     dest: "{{ aeron_dir }}/benchmark-config.yml"
+    mode: '0644'
+
+- name: Create benchmark README
+  copy:
+    dest: "{{ aeron_dir }}/benchmark/README.md"
+    content: |
+      # Aeron benchmark scripts
+      Run the latency benchmark: ./run-benchmark.sh
+      Config: benchmark-config.yml
+      Results go to: {{ aeron_dir }}/results/
+    mode: '0644'
+
+- name: Mark Aeron setup complete
+  file:
+    path: "{{ aeron_dir }}/.aeron-ready"
+    state: touch
     mode: '0644'

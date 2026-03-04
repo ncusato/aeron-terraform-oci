@@ -74,6 +74,7 @@ variableGroups:
 
   - title: "Performance Settings"
     variables:
+      - use_sriov_networking
       - hyperthreading
 
   - title: "Network Configuration"
@@ -405,6 +406,12 @@ variables:
   # ==========================================================================
   # Performance Settings
   # ==========================================================================
+  use_sriov_networking:
+    type: boolean
+    title: "Use SR-IOV (Hardware-assisted) Networking"
+    description: "Low-latency networking for benchmarks. Disable for paravirtualized if shape/image do not support SR-IOV."
+    default: true
+
   hyperthreading:
     type: boolean
     title: "Enable Hyperthreading (SMT)"
