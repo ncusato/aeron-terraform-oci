@@ -1,0 +1,45 @@
+# Build AeronMessagingTerraform.zip and publish to release for Deploy to Oracle Cloud
+name: Release stack zip
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update latest tag to this commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f latest
+          git push -f origin latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create AeronMessagingTerraform.zip
+        run: |
+          # Same structure as GitHub archive: one top-level folder aeron-terraform-oci-main/
+          git archive --format=zip --prefix=aeron-terraform-oci-main/ HEAD -o AeronMessagingTerraform.zip
+          ls -la AeronMessagingTerraform.zip
+
+      - name: Create or update release and upload zip
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest stack (Aeron Messaging Terraform)
+          body: "Stack zip for Deploy to Oracle Cloud. Updated on push to main."
+          files: AeronMessagingTerraform.zip
+          replace_assets: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

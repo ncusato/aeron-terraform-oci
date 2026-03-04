@@ -1,4 +1,13 @@
 # =============================================================================
+# Playbooks archive (single file upload avoids directory provisioner failures)
+# =============================================================================
+data "archive_file" "playbooks" {
+  type        = "tgz"
+  source_dir  = "${path.module}/playbooks"
+  output_path = "${path.module}/playbooks.tar.gz"
+}
+
+# =============================================================================
 # Controller Node (Public Subnet - Orchestrator)
 # =============================================================================
 resource "oci_core_instance" "controller" {
@@ -238,14 +247,17 @@ resource "null_resource" "controller_provisioner" {
   }
 
   provisioner "file" {
-    source      = "${path.module}/playbooks/"
-    destination = "/tmp/playbooks"
+    source      = data.archive_file.playbooks.output_path
+    destination = "/tmp/playbooks.tar.gz"
   }
 
   provisioner "remote-exec" {
     inline = [
       "#!/bin/bash",
       "set -e",
+      "mkdir -p /tmp/playbooks",
+      "tar -xzf /tmp/playbooks.tar.gz -C /tmp/playbooks",
+      "rm -f /tmp/playbooks.tar.gz",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
@@ -288,14 +300,17 @@ resource "null_resource" "benchmark_provisioner" {
   }
 
   provisioner "file" {
-    source      = "${path.module}/playbooks/"
-    destination = "/tmp/playbooks"
+    source      = data.archive_file.playbooks.output_path
+    destination = "/tmp/playbooks.tar.gz"
   }
 
   provisioner "remote-exec" {
     inline = [
       "#!/bin/bash",
       "set -e",
+      "mkdir -p /tmp/playbooks",
+      "tar -xzf /tmp/playbooks.tar.gz -C /tmp/playbooks",
+      "rm -f /tmp/playbooks.tar.gz",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",
@@ -338,14 +353,17 @@ resource "null_resource" "failover_provisioner" {
   }
 
   provisioner "file" {
-    source      = "${path.module}/playbooks/"
-    destination = "/tmp/playbooks"
+    source      = data.archive_file.playbooks.output_path
+    destination = "/tmp/playbooks.tar.gz"
   }
 
   provisioner "remote-exec" {
     inline = [
       "#!/bin/bash",
       "set -e",
+      "mkdir -p /tmp/playbooks",
+      "tar -xzf /tmp/playbooks.tar.gz -C /tmp/playbooks",
+      "rm -f /tmp/playbooks.tar.gz",
       "sudo mkdir -p /opt/aeron",
       "sudo mv /tmp/playbooks /opt/aeron/",
       "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron",

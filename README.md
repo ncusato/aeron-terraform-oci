@@ -1,6 +1,6 @@
 # Aeron Deployment for Oracle Cloud Infrastructure
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/ncusato/aeron-terraform-oci/archive/refs/heads/main.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/ncusato/aeron-terraform-oci/releases/latest/download/AeronMessagingTerraform.zip)
 
 Deploy [Aeron](https://github.com/real-logic/aeron) on OCI for high-performance messaging benchmarks. This guide explains how the nodes are configured and how to run and interpret benchmarks.
 
