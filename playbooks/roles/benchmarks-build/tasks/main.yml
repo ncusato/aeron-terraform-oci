@@ -54,6 +54,64 @@
     executable: /bin/bash
   when: node_role | default('') == 'controller' and benchmarks_tar_stat_after_build.stat.exists | default(false)
 
+- name: Check for scripts directory at benchmarks-dist root
+  stat:
+    path: "{{ benchmarks_dist_path }}/scripts"
+  register: benchmarks_scripts_root_stat
+  when: node_role | default('') == 'controller'
+
+- name: Discover nested scripts directory if root scripts is missing
+  find:
+    paths: "{{ benchmarks_dist_path }}"
+    recurse: true
+    file_type: directory
+    patterns: "scripts"
+  register: benchmarks_scripts_find
+  when:
+    - node_role | default('') == 'controller'
+    - not (benchmarks_scripts_root_stat.stat.exists | default(false))
+
+- name: Set effective benchmarks scripts directory
+  set_fact:
+    benchmarks_effective_scripts_path: >-
+      {{
+        (benchmarks_dist_path ~ '/scripts')
+        if (benchmarks_scripts_root_stat.stat.exists | default(false))
+        else (
+          (benchmarks_scripts_find.files | map(attribute='path') | list | first)
+          if ((benchmarks_scripts_find.matched | default(0)) | int > 0)
+          else ''
+        )
+      }}
+  when: node_role | default('') == 'controller'
+
+- name: Debug effective benchmarks scripts directory
+  debug:
+    msg:
+      - "benchmarks_dist_path={{ benchmarks_dist_path }}"
+      - "benchmarks_effective_scripts_path={{ benchmarks_effective_scripts_path | default('') }}"
+      - "root_scripts_exists={{ benchmarks_scripts_root_stat.stat.exists | default(false) }}"
+      - "nested_scripts_matches={{ benchmarks_scripts_find.matched | default(0) }}"
+  when: node_role | default('') == 'controller'
+
+- name: Fail if no scripts directory found in benchmarks distribution
+  fail:
+    msg: "No scripts directory found under {{ benchmarks_dist_path }} after extracting benchmarks.tar."
+  when:
+    - node_role | default('') == 'controller'
+    - (benchmarks_effective_scripts_path | default('')) == ''
+
+- name: Ensure compatibility path benchmarks-dist/scripts exists
+  file:
+    src: "{{ benchmarks_effective_scripts_path }}"
+    dest: "{{ benchmarks_dist_path }}/scripts"
+    state: link
+    force: true
+  when:
+    - node_role | default('') == 'controller'
+    - (benchmarks_effective_scripts_path | default('')) != ''
+    - benchmarks_effective_scripts_path != (benchmarks_dist_path ~ '/scripts')
+
 # Deploy benchmarks-dist to benchmark nodes so they can run echo/server side.
 # Requires benchmark_node_ips (comma-separated string, e.g. "10.0.1.2,10.0.1.3") and deploy_key on controller.
 - name: Deploy benchmarks-dist to benchmark nodes
