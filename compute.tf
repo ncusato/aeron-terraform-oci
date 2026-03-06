@@ -284,10 +284,10 @@ resource "null_resource" "controller_provisioner" {
 
   provisioner "remote-exec" {
     inline = [
-      "mkdir -p /opt/aeron/.ssh",
-      "mv /tmp/deploy_key.pem /opt/aeron/.ssh/deploy_key",
-      "chmod 600 /opt/aeron/.ssh/deploy_key",
-      "chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron/.ssh",
+      "sudo mkdir -p /opt/aeron/.ssh",
+      "sudo mv /tmp/deploy_key.pem /opt/aeron/.ssh/deploy_key",
+      "sudo chmod 600 /opt/aeron/.ssh/deploy_key",
+      "sudo chown -R ${var.ssh_username}:${var.ssh_username} /opt/aeron/.ssh",
     ]
   }
 
