@@ -204,6 +204,8 @@ After apply, note the **controller public IP** and **benchmark private IPs** fro
 | `benchmarks_repo_url` | `https://github.com/aeron-io/benchmarks` | Official benchmarks repo (LoadTestRig, echo/cluster). |
 | `benchmarks_git_branch` | `""` | Branch/tag (empty = master). |
 | `java_version` | `17` | OpenJDK version (17 recommended; JVM opts include `--add-opens` for Agrona). |
+| `run_benchmarks` | `false` | Automatically run benchmark matrix after provisioning completes. |
+| `run_benchmarks_matrix_modes` | `java,java_vma,c,c_vma` | Driver modes to test in matrix run (comma-separated). |
 | `hyperthreading` | `false` | SMT on benchmark/failover (off for latency). |
 | `use_default_image` | `true` | Ubuntu 24.04 Minimal image. |
 
@@ -225,7 +227,7 @@ After the stack apply completes, SSH to the controller and check:
 - **`/opt/aeron/playbooks`** — Ansible playbooks (deployed by Terraform).
 - **`/opt/aeron/benchmark`** — Single-node scripts (`run-benchmark.sh`, `benchmark-config.yml`). Created by Ansible.
 - **`/opt/aeron/benchmarks-dist`** — aeron-io/benchmarks distribution (built with `gradlew deployTar`). Contains `scripts/` with `aeron/remote-echo-benchmarks` and wrapper scripts.
-- **`/opt/aeron/scripts`** — Stack scripts: `config/benchmark-config.env` (client/server IPs, paths, JVM opts), `run-echo-benchmark.sh` (launcher that sources config and runs the echo wrapper).
+- **`/opt/aeron/scripts`** — Stack scripts: `config/benchmark-config.env` (client/server/failover IPs, paths, JVM opts), `run-echo-benchmark.sh` (launcher that sources config and runs the echo wrapper).
 - **`/opt/aeron/.aeron-ready`** — Present if Ansible completed successfully.
 
 If `benchmarks-dist` or `.aeron-ready` is missing, Ansible may have failed; check apply logs and re-run if needed.
@@ -273,6 +275,33 @@ cd /opt/aeron/benchmarks-dist/scripts
 ```
 
 Results (HDR archives) are produced under the scripts directory (e.g. `aeron-echo-*-client.tar.gz`). Use `aggregate-compare-results.sh` in the same directory to aggregate and compare runs. See [aeron-io/benchmarks](https://github.com/aeron-io/benchmarks) and the quickstart for full options (driver modes, cluster, aggregation).
+
+### Automated matrix run (Run Benchmarks in stack)
+
+When **Run Benchmarks After Deployment** (`run_benchmarks=true`) is enabled, the stack runs matrix benchmarks automatically **after all node provisioning and configuration is complete**:
+
+- **Echo matrix** always runs (`run-driver-matrix.sh echo`).
+- **Cluster matrix** runs automatically when `enable_failover_node=true` (`run-driver-matrix.sh cluster`).
+- Driver set comes from `run_benchmarks_matrix_modes` (default: `java,java_vma,c,c_vma`).
+
+Results and progress are published in controller home:
+
+```bash
+~/benchmark-results/
+  STATUS.txt
+  run-driver-matrix-echo.log
+  run-driver-matrix-cluster.log            # when failover enabled
+  driver-matrix-echo-summary.csv
+  driver-matrix-cluster-summary.csv        # when failover enabled
+  aeron-echo-*.tar.gz
+  aeron-cluster-*.tar.gz                   # when failover enabled
+```
+
+`driver-matrix-*-summary.csv` includes aggregated latency metrics per scenario:
+- `median_p50_us`
+- `median_p99_us`
+- `median_p999_us`
+- `median_max_us`
 
 ### Two-node manual (Media Driver + Pong/Ping)
 
