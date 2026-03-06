@@ -3,6 +3,10 @@
 aeron_dir: /opt/aeron
 aeron_git_repo: "https://github.com/real-logic/aeron.git"
 aeron_git_branch: ""
+# Official benchmarks repo (LoadTestRig, echo/cluster scenarios, HDR histograms)
+benchmarks_repo_url: "https://github.com/aeron-io/benchmarks"
+benchmarks_git_branch: ""
+benchmarks_dist_path: "{{ aeron_dir }}/benchmarks-dist"
 java_version: "17"
 hyperthreading: false
 force_rebuild: false
@@ -30,8 +34,10 @@ aeron_sender_io_vector_capacity: 1
 # Optional: apply GRUB-based CPU isolation (requires reboot)
 apply_cpu_isolation_grub: false
 
-# Java and Aeron JVM/options
+# Java and Aeron JVM/options (--add-opens required for Java 17+ with Agrona)
 aeron_java_opts: >-
+  --add-opens java.base/jdk.internal.misc=ALL-UNNAMED
+  --add-opens java.base/sun.nio.ch=ALL-UNNAMED
   -XX:+UnlockExperimentalVMOptions
   -XX:+UseZGC
   -XX:+UseLargePages

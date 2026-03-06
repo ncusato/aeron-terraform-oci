@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Launcher: sources stack config and runs aeron-io/benchmarks echo wrapper from benchmarks-dist/scripts.
+set -euo pipefail
+SCRIPT_DIR="{{ aeron_dir }}/scripts"
+CONFIG="$SCRIPT_DIR/config/benchmark-config.env"
+BENCH_SCRIPTS="{{ benchmarks_dist_path }}/scripts"
+if [[ ! -f "$CONFIG" ]]; then
+  echo "Missing config: $CONFIG" >&2
+  exit 1
+fi
+if [[ ! -d "$BENCH_SCRIPTS" ]]; then
+  echo "Missing benchmarks-dist scripts: $BENCH_SCRIPTS" >&2
+  exit 1
+fi
+set -a
+source "$CONFIG"
+set +a
+cd "$BENCH_SCRIPTS"
+exec ./wrapper-echo-unified.sh "$@"

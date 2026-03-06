@@ -266,13 +266,25 @@ variable "ssh_username" {
 # =============================================================================
 variable "aeron_git_repo" {
   type        = string
-  description = "Aeron Git repository URL"
+  description = "Aeron (real-logic) Git repository URL for Media Driver and samples"
   default     = "https://github.com/real-logic/aeron.git"
 }
 
 variable "aeron_git_branch" {
   type        = string
   description = "Aeron Git branch or tag (leave empty for latest master)"
+  default     = ""
+}
+
+variable "benchmarks_repo_url" {
+  type        = string
+  description = "Benchmarks repo URL (official aeron-io/benchmarks for LoadTestRig, echo/cluster scenarios)"
+  default     = "https://github.com/aeron-io/benchmarks"
+}
+
+variable "benchmarks_git_branch" {
+  type        = string
+  description = "Benchmarks repo branch or tag (leave empty for master)"
   default     = ""
 }
 
@@ -292,6 +304,12 @@ variable "run_benchmarks" {
   type        = bool
   description = "Run Aeron benchmarks after installation"
   default     = false
+}
+
+variable "run_benchmarks_matrix_modes" {
+  type        = string
+  description = "Driver matrix modes for automated benchmark run (comma-separated): java,java_vma,c,c_vma"
+  default     = "java,java_vma,c,c_vma"
 }
 
 # =============================================================================

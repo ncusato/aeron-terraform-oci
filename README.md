@@ -2,7 +2,7 @@
 
 [![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https://github.com/ncusato/aeron-terraform-oci/releases/latest/download/AeronMessagingTerraform.zip)
 
-Deploy [Aeron](https://github.com/real-logic/aeron) on OCI for high-performance messaging benchmarks. This guide explains how the nodes are configured and how to run and interpret benchmarks.
+Deploy [Aeron](https://github.com/real-logic/aeron) on OCI for high-performance messaging benchmarks. The stack uses the official **[aeron-io/benchmarks](https://github.com/aeron-io/benchmarks)** repo (LoadTestRig, echo/cluster scenarios, HDR histograms) by default and includes wrapper scripts for two-node echo testing. This README aligns with the [quickstart guide](docs/INCONSISTENCIES-QUICKSTART-VS-STACK.md) as the source of truth for node roles, Ansible pipeline, and benchmark workflow.
 
 ---
 
@@ -28,7 +28,8 @@ This stack deploys:
 - **Two or more benchmark nodes** (client/receiver) in a **private subnet** — each with at least 10 OCPUs, used for the actual latency and throughput tests.
 - **Optional failover node** in the same private subnet but a **different Availability Domain** — same 10 OCPU minimum, for high availability.
 
-Aeron is installed from Git and built on each node. Ansible applies socket buffer tuning, optional CPU isolation, and a fixed benchmark profile (288 bytes @ 101K msg/s) so results are comparable across runs.
+- **Aeron** (real-logic/aeron) is built on each node for the Media Driver and samples.
+- **Benchmarks repo** ([aeron-io/benchmarks](https://github.com/aeron-io/benchmarks)) is cloned and built on the controller with `./gradlew deployTar`; the resulting `benchmarks-dist` is deployed to all benchmark nodes. Ansible applies socket buffer tuning, optional CPU isolation, and a fixed profile (288B @ 101K msg/s). Wrapper scripts for two-node echo (and optional cluster) live in `benchmarks-dist/scripts/` and are driven by a stack-generated config so the benchmark runs without Java 17 module errors (JVM `--add-opens`).
 
 ---
 
@@ -193,14 +194,16 @@ After apply, note the **controller public IP** and **benchmark private IPs** fro
 | `existing_private_subnet_id` | — | Private subnet for benchmark/failover. |
 | `private_deployment` | `false` | Controller without public IP (VPN/FastConnect). |
 
-### Aeron and image
+### Aeron, benchmarks repo, and image
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `install_aeron` | `true` | Install and build Aeron from Git. |
-| `aeron_git_repo` | `https://github.com/real-logic/aeron.git` | Aeron repo. |
+| `install_aeron` | `true` | Install Aeron and build benchmarks repo. |
+| `aeron_git_repo` | `https://github.com/real-logic/aeron.git` | Aeron (Media Driver/samples) repo. |
 | `aeron_git_branch` | `""` | Branch/tag (empty = master). |
-| `java_version` | `17` | OpenJDK version. |
+| `benchmarks_repo_url` | `https://github.com/aeron-io/benchmarks` | Official benchmarks repo (LoadTestRig, echo/cluster). |
+| `benchmarks_git_branch` | `""` | Branch/tag (empty = master). |
+| `java_version` | `17` | OpenJDK version (17 recommended; JVM opts include `--add-opens` for Agrona). |
 | `hyperthreading` | `false` | SMT on benchmark/failover (off for latency). |
 | `use_default_image` | `true` | Ubuntu 24.04 Minimal image. |
 
@@ -220,10 +223,12 @@ After apply, note the **controller public IP** and **benchmark private IPs** fro
 After the stack apply completes, SSH to the controller and check:
 
 - **`/opt/aeron/playbooks`** — Ansible playbooks (deployed by Terraform).
-- **`/opt/aeron/benchmark`** — Benchmark scripts and config (`run-benchmark.sh`, `benchmark-config.yml`, `README.md`). Created by Ansible.
-- **`/opt/aeron/.aeron-ready`** — Present if Ansible completed successfully (Aeron install + benchmark setup).
+- **`/opt/aeron/benchmark`** — Single-node scripts (`run-benchmark.sh`, `benchmark-config.yml`). Created by Ansible.
+- **`/opt/aeron/benchmarks-dist`** — aeron-io/benchmarks distribution (built with `gradlew deployTar`). Contains `scripts/` with `aeron/remote-echo-benchmarks` and wrapper scripts.
+- **`/opt/aeron/scripts`** — Stack scripts: `config/benchmark-config.env` (client/server IPs, paths, JVM opts), `run-echo-benchmark.sh` (launcher that sources config and runs the echo wrapper).
+- **`/opt/aeron/.aeron-ready`** — Present if Ansible completed successfully.
 
-If `benchmark` or `.aeron-ready` is missing, Ansible may have failed during apply; check the apply logs and re-run if needed.
+If `benchmarks-dist` or `.aeron-ready` is missing, Ansible may have failed; check apply logs and re-run if needed.
 
 ### Single-node: automated script
 
@@ -251,13 +256,29 @@ This runs the reference profile (288B @ 101K) and a sweep. Results go to `/opt/a
 /opt/aeron/bin/ping.sh 288 101000
 ```
 
-### Two-node (client and receiver on different machines)
+### Two-node echo (aeron-io/benchmarks wrappers)
+
+From the **controller**, run the echo benchmark using the official benchmarks repo and wrapper (client = first benchmark node, server = second). The launcher sources the stack config (IPs, paths, JVM `--add-opens` for Java 17) so the run does not error:
+
+```bash
+/opt/aeron/scripts/run-echo-benchmark.sh
+```
+
+Or manually:
+
+```bash
+source /opt/aeron/scripts/config/benchmark-config.env
+cd /opt/aeron/benchmarks-dist/scripts
+./wrapper-echo-unified.sh
+```
+
+Results (HDR archives) are produced under the scripts directory (e.g. `aeron-echo-*-client.tar.gz`). Use `aggregate-compare-results.sh` in the same directory to aggregate and compare runs. See [aeron-io/benchmarks](https://github.com/aeron-io/benchmarks) and the quickstart for full options (driver modes, cluster, aggregation).
+
+### Two-node manual (Media Driver + Pong/Ping)
 
 1. On **receiver** (e.g. benchmark-2): start Media Driver and Pong (channel/endpoint so client can reach it).
 2. On **client** (e.g. benchmark-1): start Media Driver and Ping with the receiver’s channel (e.g. `aeron:udp?endpoint=<receiver-ip>:20121`).
 3. Use the controller as jump host to SSH to both private IPs.
-
-Exact channel and rate (e.g. 101K) should match your wrapper or script; the Ansible-generated scripts use localhost by default for single-node.
 
 ### Throughput (single-node)
 
@@ -315,6 +336,8 @@ For reproducible baselines, keep the same profile (288B @ 101K), same socket buf
 **References**
 
 - [Aeron GitHub](https://github.com/real-logic/aeron)
+- [aeron-io/benchmarks](https://github.com/aeron-io/benchmarks) — official latency benchmarks, wrappers, aggregation
+- [Quickstart vs stack alignment](docs/INCONSISTENCIES-QUICKSTART-VS-STACK.md) — source of truth and inconsistency list
 - [OCI Resource Manager](https://docs.oracle.com/en-us/iaas/Content/ResourceManager/home.htm)
 - [OCI HPC Quick Start](https://github.com/oracle-quickstart/oci-hpc)
 

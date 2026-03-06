@@ -100,8 +100,11 @@ variableGroups:
       - install_aeron
       - aeron_git_repo
       - aeron_git_branch
+      - benchmarks_repo_url
+      - benchmarks_git_branch
       - java_version
       - run_benchmarks
+      - run_benchmarks_matrix_modes
 
   - title: "Hidden Variables"
     variables:
@@ -576,6 +579,26 @@ variables:
         - ${install_aeron}
         - true
 
+  benchmarks_repo_url:
+    type: string
+    title: "Benchmarks Repository URL"
+    description: "Official aeron-io/benchmarks repo for LoadTestRig, echo and cluster scenarios"
+    default: "https://github.com/aeron-io/benchmarks"
+    visible:
+      eq:
+        - ${install_aeron}
+        - true
+
+  benchmarks_git_branch:
+    type: string
+    title: "Benchmarks Repo Branch/Tag"
+    description: "Branch or tag (leave empty for master)"
+    default: ""
+    visible:
+      eq:
+        - ${install_aeron}
+        - true
+
   java_version:
     type: enum
     title: "Java Version"
@@ -597,6 +620,16 @@ variables:
     visible:
       eq:
         - ${install_aeron}
+        - true
+
+  run_benchmarks_matrix_modes:
+    type: string
+    title: "Benchmark Driver Matrix"
+    description: "Comma-separated driver modes for automated run (java,java_vma,c,c_vma)"
+    default: "java,java_vma,c,c_vma"
+    visible:
+      eq:
+        - ${run_benchmarks}
         - true
 
   ssh_username:

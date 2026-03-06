@@ -1,11 +1,14 @@
 ---
 # Aeron deployment and benchmark setup
 # Variables come from group_vars/all.yml and Terraform extra vars (-e)
+# On controller: builds aeron-io/benchmarks (deployTar), deploys to benchmark nodes, installs wrappers.
 - name: Aeron Deployment
   hosts: all
   become: true
   roles:
     - role: aeron-install
       tags: [install, aeron]
+    - role: benchmarks-build
+      tags: [benchmarks, build]
     - role: aeron-benchmark
       tags: [benchmark]

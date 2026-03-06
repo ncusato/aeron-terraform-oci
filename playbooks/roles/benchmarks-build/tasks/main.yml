@@ -1,0 +1,66 @@
+---
+# Build aeron-io/benchmarks on controller: clone, gradlew deployTar, extract to benchmarks-dist.
+# Only runs when node_role is controller (set by Terraform extra vars).
+- name: Ensure benchmarks build directory exists
+  file:
+    path: "{{ aeron_dir }}/benchmarks-src"
+    state: directory
+    mode: '0755'
+  when: node_role | default('') == 'controller'
+
+- name: Clone benchmarks repository
+  git:
+    repo: "{{ benchmarks_repo_url }}"
+    dest: "{{ aeron_dir }}/benchmarks-src"
+    version: "{{ benchmarks_git_branch | default('master', true) }}"
+    force: yes
+  register: benchmarks_clone
+  when: node_role | default('') == 'controller'
+
+- name: Check if benchmarks tar exists
+  stat:
+    path: "{{ aeron_dir }}/benchmarks-src/build/distributions/benchmarks.tar"
+  register: benchmarks_tar_stat
+  when: node_role | default('') == 'controller'
+
+- name: Build benchmarks distribution (deployTar)
+  shell: |
+    set -e
+    export JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+    ./gradlew clean deployTar
+  args:
+    chdir: "{{ aeron_dir }}/benchmarks-src"
+  environment:
+    JAVA_HOME: "/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
+  when: node_role | default('') == 'controller' and (benchmarks_clone.changed | default(true) or force_rebuild | default(false) or not (benchmarks_tar_stat.stat.exists | default(false)))
+
+- name: Extract benchmarks tar to benchmarks-dist (Gradle creates single top-level dir)
+  shell: |
+    set -e
+    TAR="{{ aeron_dir }}/benchmarks-src/build/distributions/benchmarks.tar"
+    rm -rf "{{ benchmarks_dist_path }}-bak" "{{ benchmarks_dist_path }}"
+    mkdir -p "{{ aeron_dir }}/_bench_extract"
+    tar -xf "$TAR" -C "{{ aeron_dir }}/_bench_extract"
+    TOP=$(ls -1 "{{ aeron_dir }}/_bench_extract" | head -1)
+    mv "{{ aeron_dir }}/_bench_extract/$TOP" "{{ benchmarks_dist_path }}"
+    rm -rf "{{ aeron_dir }}/_bench_extract"
+  args:
+    executable: /bin/bash
+  when: node_role | default('') == 'controller' and benchmarks_tar_stat.stat.exists | default(false)
+
+# Deploy benchmarks-dist to benchmark nodes so they can run echo/server side.
+# Requires benchmark_node_ips (comma-separated string, e.g. "10.0.1.2,10.0.1.3") and deploy_key on controller.
+- name: Deploy benchmarks-dist to benchmark nodes
+  shell: |
+    set -e
+    KEY="{{ aeron_dir }}/.ssh/deploy_key"
+    for ip in $(echo "{{ benchmark_node_ips | default('') }}" | tr ',' ' '); do
+      [ -z "$ip" ] && continue
+      rsync -avz --delete -e "ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+        "{{ benchmarks_dist_path }}/" "{{ ssh_username | default('ubuntu') }}@$ip:{{ benchmarks_dist_path }}/"
+    done
+  when:
+    - node_role | default('') == 'controller'
+    - benchmark_node_ips is defined
+    - benchmark_node_ips | default('') | length > 0
+  changed_when: true

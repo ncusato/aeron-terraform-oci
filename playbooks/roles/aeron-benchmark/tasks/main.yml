@@ -1,9 +1,13 @@
 ---
-- name: Create benchmark directory
+- name: Create benchmark and scripts directories
   file:
-    path: "{{ aeron_dir }}/benchmark"
+    path: "{{ item }}"
     state: directory
     mode: '0755'
+  loop:
+    - "{{ aeron_dir }}/benchmark"
+    - "{{ aeron_dir }}/scripts"
+    - "{{ aeron_dir }}/scripts/config"
 
 - name: Create benchmark runner script (in benchmark dir)
   template:
@@ -34,6 +38,44 @@
     src: benchmark-config.yml.j2
     dest: "{{ aeron_dir }}/benchmark-config.yml"
     mode: '0644'
+
+- name: Create scripts config for aeron-io/benchmarks wrappers
+  template:
+    src: benchmark-config.env.j2
+    dest: "{{ aeron_dir }}/scripts/config/benchmark-config.env"
+    mode: '0644'
+
+- name: Create run-echo-benchmark launcher (sources config, runs wrapper)
+  template:
+    src: run-echo-benchmark.sh.j2
+    dest: "{{ aeron_dir }}/scripts/run-echo-benchmark.sh"
+    mode: '0755'
+
+- name: Copy benchmark wrapper scripts to benchmarks-dist/scripts (controller only)
+  copy:
+    src: "wrappers/{{ item }}"
+    dest: "{{ benchmarks_dist_path }}/scripts/{{ item }}"
+    mode: '0755'
+  loop:
+    - wrapper-echo-unified.sh
+    - wrapper-cluster-unified.sh
+    - aggregate-compare-results.sh
+    - run-driver-matrix.sh
+  when: node_role | default('') == 'controller' and (benchmarks_dist_path | default('')) != ''
+
+- name: Ensure benchmarks scripts config directory exists (controller only)
+  file:
+    path: "{{ benchmarks_dist_path }}/scripts/config"
+    state: directory
+    mode: '0755'
+  when: node_role | default('') == 'controller' and (benchmarks_dist_path | default('')) != ''
+
+- name: Copy benchmark config into benchmarks scripts directory (controller only)
+  template:
+    src: benchmark-config.env.j2
+    dest: "{{ benchmarks_dist_path }}/scripts/config/benchmark-config.env"
+    mode: '0644'
+  when: node_role | default('') == 'controller' and (benchmarks_dist_path | default('')) != ''
 
 - name: Create benchmark README
   copy:
