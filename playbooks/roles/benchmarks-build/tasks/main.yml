@@ -54,63 +54,70 @@
     executable: /bin/bash
   when: node_role | default('') == 'controller' and benchmarks_tar_stat_after_build.stat.exists | default(false)
 
-- name: Check for scripts directory at benchmarks-dist root
-  stat:
-    path: "{{ benchmarks_dist_path }}/scripts"
-  register: benchmarks_scripts_root_stat
+- name: Ensure benchmarks scripts staging directory exists
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ benchmarks_dist_path }}/scripts"
+    - "{{ benchmarks_dist_path }}/scripts/aeron"
   when: node_role | default('') == 'controller'
 
-- name: Discover nested scripts directory if root scripts is missing
+- name: Find benchmark launcher executables in extracted distribution
   find:
     paths: "{{ benchmarks_dist_path }}"
     recurse: true
-    file_type: directory
-    patterns: "scripts"
-  register: benchmarks_scripts_find
-  when:
-    - node_role | default('') == 'controller'
-    - not (benchmarks_scripts_root_stat.stat.exists | default(false))
-
-- name: Set effective benchmarks scripts directory
-  set_fact:
-    benchmarks_effective_scripts_path: >-
-      {{
-        (benchmarks_dist_path ~ '/scripts')
-        if (benchmarks_scripts_root_stat.stat.exists | default(false))
-        else (
-          (benchmarks_scripts_find.files | map(attribute='path') | list | first)
-          if ((benchmarks_scripts_find.matched | default(0)) | int > 0)
-          else ''
-        )
-      }}
+    file_type: file
+    patterns:
+      - "remote-echo-benchmarks"
+      - "remote-cluster-benchmarks"
+      - "aggregate-results"
+  register: benchmarks_launcher_files
   when: node_role | default('') == 'controller'
 
-- name: Debug effective benchmarks scripts directory
+- name: Resolve launcher executable paths
+  set_fact:
+    benchmarks_remote_echo_path: "{{ (benchmarks_launcher_files.files | map(attribute='path') | select('search', '/remote-echo-benchmarks$') | list | first) | default('') }}"
+    benchmarks_remote_cluster_path: "{{ (benchmarks_launcher_files.files | map(attribute='path') | select('search', '/remote-cluster-benchmarks$') | list | first) | default('') }}"
+    benchmarks_aggregate_results_path: "{{ (benchmarks_launcher_files.files | map(attribute='path') | select('search', '/aggregate-results$') | list | first) | default('') }}"
+  when: node_role | default('') == 'controller'
+
+- name: Debug resolved benchmark launcher paths
   debug:
     msg:
       - "benchmarks_dist_path={{ benchmarks_dist_path }}"
-      - "benchmarks_effective_scripts_path={{ benchmarks_effective_scripts_path | default('') }}"
-      - "root_scripts_exists={{ benchmarks_scripts_root_stat.stat.exists | default(false) }}"
-      - "nested_scripts_matches={{ benchmarks_scripts_find.matched | default(0) }}"
+      - "matched_launcher_files={{ benchmarks_launcher_files.matched | default(0) }}"
+      - "remote_echo={{ benchmarks_remote_echo_path }}"
+      - "remote_cluster={{ benchmarks_remote_cluster_path }}"
+      - "aggregate_results={{ benchmarks_aggregate_results_path }}"
   when: node_role | default('') == 'controller'
 
-- name: Fail if no scripts directory found in benchmarks distribution
+- name: Fail if required launcher executables are missing
   fail:
-    msg: "No scripts directory found under {{ benchmarks_dist_path }} after extracting benchmarks.tar."
+    msg: >-
+      Required benchmark launcher(s) missing under {{ benchmarks_dist_path }}.
+      remote-echo-benchmarks='{{ benchmarks_remote_echo_path }}'
+      remote-cluster-benchmarks='{{ benchmarks_remote_cluster_path }}'
+      aggregate-results='{{ benchmarks_aggregate_results_path }}'
   when:
     - node_role | default('') == 'controller'
-    - (benchmarks_effective_scripts_path | default('')) == ''
+    - benchmarks_remote_echo_path == '' or benchmarks_remote_cluster_path == '' or benchmarks_aggregate_results_path == ''
 
-- name: Ensure compatibility path benchmarks-dist/scripts exists
+- name: Link launcher executables into stable scripts layout
   file:
-    src: "{{ benchmarks_effective_scripts_path }}"
-    dest: "{{ benchmarks_dist_path }}/scripts"
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
     state: link
     force: true
-  when:
-    - node_role | default('') == 'controller'
-    - (benchmarks_effective_scripts_path | default('')) != ''
-    - benchmarks_effective_scripts_path != (benchmarks_dist_path ~ '/scripts')
+  loop:
+    - src: "{{ benchmarks_remote_echo_path }}"
+      dest: "{{ benchmarks_dist_path }}/scripts/aeron/remote-echo-benchmarks"
+    - src: "{{ benchmarks_remote_cluster_path }}"
+      dest: "{{ benchmarks_dist_path }}/scripts/aeron/remote-cluster-benchmarks"
+    - src: "{{ benchmarks_aggregate_results_path }}"
+      dest: "{{ benchmarks_dist_path }}/scripts/aggregate-results"
+  when: node_role | default('') == 'controller'
 
 # Deploy benchmarks-dist to benchmark nodes so they can run echo/server side.
 # Requires benchmark_node_ips (comma-separated string, e.g. "10.0.1.2,10.0.1.3") and deploy_key on controller.
