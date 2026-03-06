@@ -34,6 +34,12 @@
     JAVA_HOME: "/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
   when: node_role | default('') == 'controller' and (benchmarks_clone.changed | default(true) or force_rebuild | default(false) or not (benchmarks_tar_stat.stat.exists | default(false)))
 
+- name: Re-check if benchmarks tar exists after build
+  stat:
+    path: "{{ aeron_dir }}/benchmarks-src/build/distributions/benchmarks.tar"
+  register: benchmarks_tar_stat_after_build
+  when: node_role | default('') == 'controller'
+
 - name: Extract benchmarks tar to benchmarks-dist (Gradle creates single top-level dir)
   shell: |
     set -e
@@ -46,7 +52,7 @@
     rm -rf "{{ aeron_dir }}/_bench_extract"
   args:
     executable: /bin/bash
-  when: node_role | default('') == 'controller' and benchmarks_tar_stat.stat.exists | default(false)
+  when: node_role | default('') == 'controller' and benchmarks_tar_stat_after_build.stat.exists | default(false)
 
 # Deploy benchmarks-dist to benchmark nodes so they can run echo/server side.
 # Requires benchmark_node_ips (comma-separated string, e.g. "10.0.1.2,10.0.1.3") and deploy_key on controller.
@@ -56,8 +62,9 @@
     KEY="{{ aeron_dir }}/.ssh/deploy_key"
     for ip in $(echo "{{ benchmark_node_ips | default('') }}" | tr ',' ' '); do
       [ -z "$ip" ] && continue
-      rsync -avz --delete -e "ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
-        "{{ benchmarks_dist_path }}/" "{{ ssh_username | default('ubuntu') }}@$ip:{{ benchmarks_dist_path }}/"
+      # Stream tar over SSH so benchmark nodes do not require rsync package.
+      tar -C "{{ benchmarks_dist_path }}" -czf - . | ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{{ ssh_username | default('ubuntu') }}@$ip" \
+        "sudo rm -rf '{{ benchmarks_dist_path }}' && sudo mkdir -p '{{ benchmarks_dist_path }}' && sudo tar -xzf - -C '{{ benchmarks_dist_path }}' && sudo chown -R {{ ssh_username | default('ubuntu') }}:{{ ssh_username | default('ubuntu') }} '{{ benchmarks_dist_path }}'"
     done
   when:
     - node_role | default('') == 'controller'
